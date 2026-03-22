@@ -1,156 +1,142 @@
-=== Polymarket Leaderboard – Live Top Wallets for WordPress ===
+=== Polymarket Leaderboard — Top Traders & Copy Trading ===
 Contributors: bounmee
-Tags: polymarket, prediction markets, leaderboard, trading, wallets
+Tags: polymarket, leaderboard, crypto, prediction-markets, trading, defi, wallets
 Requires at least: 5.5
-Tested up to: 6.9
+Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 3.3.2
-License: GPL-2.0+
+Stable tag: 3.4.0
+License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Embed the live Polymarket top-wallet leaderboard on any WordPress page with one shortcode. Server-side API proxy, category filters, 1-hour cache.
+Embed a live Polymarket top-wallet leaderboard on any page. Always-fresh API data, 30D/7D toggle, White & Navy Blue themes, category filters, and CopyTrade buttons.
 
 == Description ==
 
-**Polymarket Leaderboard** embeds a live top-wallet leaderboard from the official Polymarket Data API on any WordPress page using a single shortcode.
+**Polymarket Leaderboard** embeds a live top-10 wallet rankings table on any page or post with a single shortcode.
 
-The plugin fetches the top 10 Polymarket traders ranked by 30-day PNL and renders them in a fast, responsive widget. All API calls are proxied server-side through WordPress — no CORS issues on any host. Data is cached per category for one hour.
+= Plugin Repositories =
 
-**Leaderboard & Data:**
+* GitLab: https://gitlab.com/telegramtrading-polymarket-wordpress/polymarket-leaderboard-wordpress-plugin
+* SourceForge: https://sourceforge.net/projects/polymarket-wordpress/
+* GitHub: https://github.com/telegramtradingnet/polymarket-leaderboard-wordpress-plugin
+* Codeberg: https://codeberg.org/telegramtrading/polymarket-leaderboard-wordpress
 
-* Live top-10 wallets ranked by 30-day PNL
+= Key Features =
+
+**Live Leaderboard**
+* Top-10 Polymarket wallets ranked by PNL
+* **30D / 7D period toggle** — switch between 30-day and 7-day best wallets directly on the widget, no page reload
 * Category filters: All, Politics, Crypto, Sports, Culture, Tech, Finance, Macro
-* Wallet rank badges, verified badges, X (Twitter) profile links
-* Volume and PNL displayed in readable format ($12.4K, $1.2M)
-* Auto-refreshes on category switch; manual refresh button
+* Wallet address copy-to-clipboard, verified badges, X (Twitter) links
+* Why-badge: auto-generated insight per wallet
 
-**Wallet of the Day** *(optional — enable in Settings)*
+**Two Visual Themes**
+* **White** (default) — clean, light, reads on any background
+* **Navy Blue** — full dark-mode treatment (deep navy gradient background, white/light text, all elements adapted for WCAG contrast)
+* Theme chosen in Settings; both themes are bulletproof at any viewport width
 
-* Spotlights the #1 ranked wallet with a performance breakdown card
-* Auto-generated analysis: PNL/volume efficiency, category edge, rank
-* Share to X button pre-filled with wallet stats
-* One-click copy of wallet address
+**No Caching — Always Fresh**
+* Every API call fetches live data from the Polymarket API
+* No transient or session caching; visitors always see current rankings
+* Server-side seed data on first page load (zero loading spinner)
 
-**Wallet Compare Tool** *(optional — enable in Settings)*
+**Optional Extras**
+* ⭐ Wallet of the Day — dark-card performance breakdown for the #1 wallet; analysis adapts to selected time period
+* ⚖️ Wallet Compare Tool — side-by-side PNL, volume, and efficiency comparison with verdict summary
+* ⚡ CopyTrade buttons — link visitors to your copy-trading service
 
-* Pick any two wallets from the current leaderboard
-* Side-by-side comparison: 30-day PNL, volume, PNL/volume ratio, rank
-* Bar charts for at-a-glance visual comparison
-* Verdict summary with winner and efficiency analysis
+**Technical**
+* Server-side AJAX proxy through admin-ajax.php — zero CORS issues
+* Pure vanilla JS, no jQuery dependency
+* ID-scoped CSS (#ttg-lb-root) — immune to theme overrides in both directions
+* Falls back to demo data if the API is unreachable
+* WCAG AA contrast on all text in both themes
 
-**Technical:**
+= Shortcode =
 
-* Server-side AJAX proxy — no CORS issues on any host
-* Transient cache: 1 hour per category, 60-second retry on API error
-* Zero first-paint spinner — leaderboard seeded server-side on page load
-* Mobile responsive: full table on desktop, card layout on small screens
-* Pure vanilla JS — no jQuery or external JS dependencies
-* Compatible with all page caching plugins (WP Rocket, W3 Total Cache, etc.)
-* Admin cache status panel under Settings → Polymarket LB
-* Falls back to anonymised demo data if the Polymarket API is unreachable
-* Fully theme-isolated CSS — scoped under a unique ID, immune to theme interference
-
----
-
-**Shortcode:**
-
+Basic:
 `[polymarket_leaderboard]`
 
-With a default category pre-selected:
-
+With a pre-selected category:
 `[polymarket_leaderboard category="CRYPTO"]`
 
-Valid values: `OVERALL` `POLITICS` `SPORTS` `CRYPTO` `CULTURE` `ECONOMICS` `TECH` `FINANCE`
+Valid categories: OVERALL · POLITICS · SPORTS · CRYPTO · CULTURE · ECONOMICS · TECH · FINANCE
 
----
+= API =
 
-**External API:**
+This plugin uses the official Polymarket Data API:
 
-Connects to `https://data-api.polymarket.com/v1/leaderboard` for public leaderboard data only. No user data is sent. See Privacy Policy below.
+    GET https://data-api.polymarket.com/v1/leaderboard
+        ?limit=10&offset=0&timePeriod=MONTH&orderBy=PNL&category=OVERALL
+
+Full reference: https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings.md
+
+No API key required. Only public on-chain data is fetched.
+
+= Privacy =
+
+This plugin fetches public data from data-api.polymarket.com only. No visitor data is collected, stored, or transmitted to any third party.
 
 == Installation ==
 
-1. Download the zip and upload the `polymarket-leaderboard-wordpress` folder to `/wp-content/plugins/`, or install via **Plugins → Add New → Upload Plugin**.
-2. Activate via **Plugins → Installed Plugins**.
-3. Add `[polymarket_leaderboard]` to any page or post.
-4. Visit **Settings → Polymarket LB** to optionally enable the Wallet of the Day card and the wallet compare tool, and to manage the API cache.
+1. Download the plugin zip.
+2. In WordPress Admin go to **Plugins → Add New → Upload Plugin**.
+3. Upload the zip and click **Install Now**.
+4. Activate the plugin.
+5. Add `[polymarket_leaderboard]` to any page or post.
+6. Visit **Settings → Polymarket LB** to choose your theme (White or Navy Blue) and enable optional features.
 
 == Frequently Asked Questions ==
 
-= Does this plugin slow down my site? =
+= Does this require an API key? =
+No. The Polymarket Data API is public and requires no authentication.
 
-No. Scripts and API calls only fire on pages where `[polymarket_leaderboard]` is placed. Nothing loads globally.
+= Is the data cached? =
+No. Version 3.4.0 removed all caching. Every page load fetches fresh data from the Polymarket API. The server-side seed eliminates any loading spinner on first paint, but the data is always current.
 
-= What happens if the Polymarket API is down? =
+= Can I change the theme after setup? =
+Yes. Go to **Settings → Polymarket LB** at any time and switch between White and Navy Blue. The change takes effect immediately on save.
 
-The widget automatically falls back to anonymised demo data. Cached responses protect against brief outages.
+= How does the 30D / 7D toggle work? =
+The toggle appears in the widget controls bar. Clicking 7D fires a fresh API request with timePeriod=WEEK. The period label, table header, card stat labels, and Wallet of the Day analysis all update accordingly. No page reload needed.
 
-= Can I set a default category? =
-
-Yes. `[polymarket_leaderboard category="POLITICS"]` pre-selects a category on load. Valid values: OVERALL, POLITICS, SPORTS, CRYPTO, CULTURE, ECONOMICS, TECH, FINANCE.
+= Why does the leaderboard sometimes show demo data? =
+If the Polymarket API is unreachable (network issues, downtime), the widget falls back to anonymised demo data rather than showing a blank page or error. Refreshing when the API is back will restore live data.
 
 = Does it work with page caching plugins? =
+Yes. The AJAX requests that the JS fires are not cached by page caching plugins. The initial server-side seed is rendered as an inline JSON variable; static page caches will cache this seed, but clicking Refresh or switching any filter always fetches live data.
 
-Yes. Leaderboard data is seeded server-side on first load and AJAX refreshes happen client-side, so WP Rocket, W3 Total Cache, and similar are fully compatible.
-
-= Can I place this on multiple pages? =
-
-Yes. The transient cache is shared — the Polymarket API is hit at most once per category per hour regardless of how many pages use the shortcode.
-
-= Will the widget break my theme's styles? =
-
-No. All widget CSS is scoped under a unique `#ttg-lb-root` ID and uses ID-level specificity throughout. It cannot affect your theme's styles, and your theme cannot override the widget's styles.
-
-= What data does this plugin collect? =
-
-None. The plugin only fetches public data from the Polymarket API. No visitor data is collected or transmitted anywhere.
-
-== Privacy Policy ==
-
-This plugin does not collect, store, or transmit any personal data about your visitors.
-
-On page load the plugin makes a server-side request to the public Polymarket Data API (`https://data-api.polymarket.com`) to retrieve leaderboard data. The request contains no user information — only query parameters for category and result limit. The response is cached in WordPress Transients and served to all visitors.
-
-No analytics, tracking pixels, or third-party beacons are included.
-
-== Screenshots ==
-
-1. Leaderboard table with category filters, rank badges, and wallet details
-2. Wallet of the Day spotlight card with auto-generated performance analysis
-3. Side-by-side wallet compare tool with bar charts
-4. Admin settings panel — enable optional features, manage cache
+= Is it mobile-friendly? =
+Yes. On screens ≤ 768px the table switches to a card layout. Both White and Navy Blue themes are responsive and tested at 320px and up.
 
 == Changelog ==
 
+= 3.4.0 =
+* New: White / Navy Blue theme selector in Settings; full CSS adaptation for navy dark background (tables, cards, controls, filters, compare tool, all states)
+* New: 30D / 7D period toggle in the widget controls bar; switches API timePeriod between MONTH and WEEK
+* Removed all transient and sessionStorage caching — always live, always fresh
+* Period-aware labels: table PNL header, card stat labels, WotD stat label, crawler note, whyBadge copy, and WotD share tweet all reflect the selected period
+* Admin page: live API status badge, theme picker with visual swatches, removed stale cache status table
+
 = 3.3.2 =
-* Complete CSS isolation rewrite — all styles scoped under `#ttg-lb-root` with ID-level specificity, preventing any theme from overriding widget styles or injecting decorative borders/bars on headings
-* Action buttons redesigned: "View Profile" (deep navy) and "⚡ CopyTrade" (vivid indigo) with guaranteed white text
-* H2 heading bars removed — `::before` / `::after` pseudo-elements suppressed
-* Added 30px top padding and 50px bottom padding to widget wrapper
-* Table cell padding, row shadows, and border-collapse protected against theme resets
-* Filter pill active state, rank badges, PNL colours, and all interactive states locked with ID-scoped selectors
+* Complete CSS rewrite — ID-scoped, immune to theme overrides in both directions
+* Heading pseudo-elements suppressed (::before / ::after)
+* Action buttons redesigned: View Profile (deep navy) and CopyTrade (vivid indigo)
+* WCAG AA compliance on positive PNL colour
 
 = 3.3.0 =
-* Renamed repository to polymarket-leaderboard-wordpress
-* Setup wizard covers Wallet of the Day and Compare Tool
+* Repository renamed to polymarket-leaderboard-wordpress
+* Setup wizard extended to cover Wallet of the Day and Compare Tool
 
 = 3.2.1 =
-* Slug renamed for WP.org guideline 17 compliance
-* Removed inline HTML credit from public page output
-
-= 3.2.0 =
-* First-run setup wizard on activation
-* Settings page: opt-in controls for all optional features
-
-= 3.1.0 =
-* Full CSS bundle self-contained, Google Fonts via wp_enqueue_style
-* uninstall.php, License URI, escaping improvements
+* Slug renamed for WP.org guideline compliance
+* First-run redirect to setup wizard
 
 = 3.0.0 =
-* Initial release: server-side proxy, transient cache, category filters
-* Wallet of the Day, compare tool, mobile cards, demo data fallback
+* Initial public release
+* Server-side AJAX proxy, 1-hour transient cache, category filters, WOTD, compare tool, mobile card layout
 
 == Upgrade Notice ==
 
-= 3.3.2 =
-CSS hardening release. All widget styles are now fully isolated from your theme. Recommended upgrade for all users.
+= 3.4.0 =
+Adds White/Navy Blue theme selector, 30D/7D period toggle, and removes all caching for always-fresh data. No breaking changes — existing shortcodes continue to work unchanged.

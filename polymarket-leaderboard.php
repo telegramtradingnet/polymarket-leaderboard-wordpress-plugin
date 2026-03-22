@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name:  Polymarket Leaderboard — Top Traders & Copy Trading
- * Plugin URI:   https://github.com/bounmee/polymarket-leaderboard-wordpress
- * Description:  Embed a live Polymarket top-wallets leaderboard on any page. Server-side API proxy, category filters, Wallet of the Day, wallet compare tool, and CopyTrade buttons. One shortcode: [polymarket_leaderboard]
- * Version:      3.3.2
+ * Plugin URI:   https://github.com/telegramtradingnet/polymarket-leaderboard-wordpress-plugin
+ * Description:  Embed a live Polymarket top-wallets leaderboard on any page. Server-side API proxy, category filters, 30D/7D period toggle, Wallet of the Day, wallet compare tool, and CopyTrade buttons. One shortcode: [polymarket_leaderboard]
+ * Version:      3.4.0
  * Author:       bounmee
  * Author URI:   https://telegramtrading.net
  * License:      GPL-2.0+
@@ -18,15 +18,19 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 /* ═══════════════════════════════════════════════════════════
-   OPTIONS  — copy-trading link is always enabled on this build.
-   Setup wizard only asks for Wallet of the Day + Compare tool.
+   CONSTANTS
 ═══════════════════════════════════════════════════════════ */
 define( 'TTG_COPY_URL', 'https://telegramtrading.net/polygun' );
+define( 'TTG_VERSION',  '3.4.0' );
 
+/* ═══════════════════════════════════════════════════════════
+   OPTIONS
+═══════════════════════════════════════════════════════════ */
 function ttg_default_options(): array {
     return [
-        'show_wotd'    => 0,   // Wallet of the Day section
-        'show_compare' => 0,   // Compare tool section
+        'show_wotd'    => 0,
+        'show_compare' => 0,
+        'theme'        => 'white',   // 'white' | 'navy'
     ];
 }
 
@@ -57,23 +61,22 @@ add_action( 'admin_post_ttg_save_options', 'ttg_handle_save_options' );
 function ttg_handle_save_options(): void {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized', 403 ); }
     check_admin_referer( 'ttg_save_options' );
+
+    $theme_raw = sanitize_text_field( wp_unslash( $_POST['theme'] ?? 'white' ) );
     $opts = [
         'show_wotd'    => ! empty( $_POST['show_wotd'] )    ? 1 : 0,
         'show_compare' => ! empty( $_POST['show_compare'] ) ? 1 : 0,
+        'theme'        => in_array( $theme_raw, [ 'white', 'navy' ], true ) ? $theme_raw : 'white',
     ];
     update_option( 'ttg_options', $opts );
     wp_safe_redirect( add_query_arg( 'ttg_saved', '1', wp_get_referer() ) );
     exit;
 }
 
-define( 'TTG_VERSION',    '3.3.2' );
-define( 'TTG_CACHE_OK',  HOUR_IN_SECONDS );  // 1 h on success
-define( 'TTG_CACHE_ERR', 60 );               // 60 s on API error
-
 /* ═══════════════════════════════════════════════════════════
    VALID CATEGORIES, exact enum from official OpenAPI spec
 ═══════════════════════════════════════════════════════════ */
-function ttg_categories() {
+function ttg_categories(): array {
     return [ 'OVERALL', 'POLITICS', 'SPORTS', 'CRYPTO', 'CULTURE',
              'MENTIONS', 'WEATHER', 'ECONOMICS', 'TECH', 'FINANCE' ];
 }
@@ -84,7 +87,7 @@ function ttg_categories() {
 add_action( 'wp_ajax_ttg_leaderboard',        'ttg_ajax_handler' );
 add_action( 'wp_ajax_nopriv_ttg_leaderboard', 'ttg_ajax_handler' );
 
-function ttg_ajax_handler() {
+function ttg_ajax_handler(): void {
     // Verify nonce
     $nonce = sanitize_text_field( wp_unslash( $_GET['nonce'] ?? '' ) );
     if ( ! wp_verify_nonce( $nonce, 'ttg_lb_nonce' ) ) {
@@ -98,30 +101,26 @@ function ttg_ajax_handler() {
         $cat = 'OVERALL';
     }
 
-    wp_send_json( ttg_fetch( $cat ) );
+    // Sanitise + validate period (MONTH = 30D, WEEK = 7D)
+    $period_raw = strtoupper( sanitize_text_field( $_GET['period'] ?? 'MONTH' ) );
+    $period     = in_array( $period_raw, [ 'MONTH', 'WEEK' ], true ) ? $period_raw : 'MONTH';
+
+    wp_send_json( ttg_fetch( $cat, $period ) );
     exit;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   FETCH + TRANSIENT CACHE
+   FETCH — No caching, always pulls fresh data from the API.
+   Ref: https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings.md
+   timePeriod: WEEK (7D) | MONTH (30D)
+   orderBy:    PNL
+   limit:      10
 ═══════════════════════════════════════════════════════════ */
-function ttg_fetch( string $category = 'OVERALL' ): array {
-    $key    = 'ttg_lb3_' . strtolower( $category );
-    $cached = get_transient( $key );
-    if ( false !== $cached ) {
-        return is_array( $cached ) ? $cached : [];
-    }
-
-    /* ── Official /v1/leaderboard endpoint ──
-       Ref: https://docs.polymarket.com/api-reference/core/get-trader-leaderboard-rankings.md
-       timePeriod: DAY | WEEK | MONTH | ALL   (we use MONTH for 30-day PNL)
-       orderBy:    PNL | VOL                  (rank by profit)
-       limit:      1-50                       (we want top 10)
-    */
+function ttg_fetch( string $category = 'OVERALL', string $period = 'MONTH' ): array {
     $url = add_query_arg( [
         'limit'      => 10,
         'offset'     => 0,
-        'timePeriod' => 'MONTH',
+        'timePeriod' => $period,
         'orderBy'    => 'PNL',
         'category'   => $category,
     ], 'https://data-api.polymarket.com/v1/leaderboard' );
@@ -135,17 +134,14 @@ function ttg_fetch( string $category = 'OVERALL' ): array {
         ],
     ] );
 
-    // Handle WP or HTTP errors
     if ( is_wp_error( $response ) ) {
         error_log( '[TTG] Remote get error: ' . $response->get_error_message() );
-        set_transient( $key, [], TTG_CACHE_ERR );
         return [];
     }
 
     $code = (int) wp_remote_retrieve_response_code( $response );
     if ( 200 !== $code ) {
         error_log( "[TTG] HTTP {$code} from {$url}" );
-        set_transient( $key, [], TTG_CACHE_ERR );
         return [];
     }
 
@@ -153,34 +149,24 @@ function ttg_fetch( string $category = 'OVERALL' ): array {
     $json = json_decode( $body, true );
 
     if ( JSON_ERROR_NONE !== json_last_error() || empty( $json ) ) {
-        set_transient( $key, [], TTG_CACHE_ERR );
         return [];
     }
 
-    // API returns a JSON array directly (confirmed by official OpenAPI spec)
     $list = is_array( $json ) && isset( $json[0] ) ? $json
           : ( $json['data'] ?? $json['results'] ?? $json['leaderboard'] ?? [] );
 
-    $data = ! empty( $list ) ? ttg_normalise( $list ) : [];
-    $ttl  = ! empty( $data ) ? TTG_CACHE_OK : TTG_CACHE_ERR;
-    set_transient( $key, $data, $ttl );
-
-    return $data;
+    return ! empty( $list ) ? ttg_normalise( $list ) : [];
 }
 
 /* ═══════════════════════════════════════════════════════════
-   NORMALISE, map official field names to stable internal keys
-   Official fields: rank, proxyWallet, userName, vol, pnl,
-                    profileImage, xUsername, verifiedBadge
+   NORMALISE — map official field names to stable internal keys
 ═══════════════════════════════════════════════════════════ */
 function ttg_normalise( array $raw ): array {
     $out = [];
     foreach ( $raw as $i => $entry ) {
         $w = (array) $entry;
 
-        // proxyWallet is the canonical address field per spec
         $addr = sanitize_text_field( (string) ( $w['proxyWallet'] ?? $w['address'] ?? $w['wallet'] ?? '' ) );
-
         $name = sanitize_text_field( (string) ( $w['userName'] ?? $w['name'] ?? $w['pseudonym'] ?? '' ) );
         if ( '' === $name && '' !== $addr ) {
             $name = substr( $addr, 0, 6 ) . '…' . substr( $addr, -4 );
@@ -205,19 +191,7 @@ function ttg_normalise( array $raw ): array {
 
 /* ═══════════════════════════════════════════════════════════
    SHORTCODE  [polymarket_leaderboard]
-   ─ Renders H2 + leaderboard table + compare tool + wallet
-     of day + CTA + all required JS.
-   ─ Seeds initial data server-side (zero spinner on load).
-   ─ Injects window.TTG inline so it is always available
-     before the widget JS runs - no separate wp_enqueue needed.
 ═══════════════════════════════════════════════════════════ */
-
-/* ═══════════════════════════════════════════════════════════
-   FONTS are enqueued inside ttg_shortcode() so they only load
-   on pages that actually use [polymarket_leaderboard].
-   No global stylesheet injection.
-═══════════════════════════════════════════════════════════ */
-
 add_shortcode( 'polymarket_leaderboard', 'ttg_shortcode' );
 
 function ttg_shortcode( $atts ): string {
@@ -225,19 +199,21 @@ function ttg_shortcode( $atts ): string {
     $cat  = strtoupper( sanitize_text_field( $atts['category'] ) );
     if ( ! in_array( $cat, ttg_categories(), true ) ) { $cat = 'OVERALL'; }
 
-    $opts              = ttg_get_options();
-    $show_wotd         = (bool) $opts['show_wotd'];
-    $show_compare      = (bool) $opts['show_compare'];
-    $show_copy_links   = true;  // always enabled in this build
-    $copy_link_url     = esc_url( TTG_COPY_URL );
+    $opts             = ttg_get_options();
+    $show_wotd        = (bool) $opts['show_wotd'];
+    $show_compare     = (bool) $opts['show_compare'];
+    $show_copy_links  = true;
+    $copy_link_url    = esc_url( TTG_COPY_URL );
+    $theme            = in_array( $opts['theme'] ?? 'white', [ 'white', 'navy' ], true ) ? $opts['theme'] : 'white';
+    $theme_class      = 'navy' === $theme ? ' ttg-theme-navy' : ' ttg-theme-white';
 
-    $seed  = ttg_fetch( $cat );
-    $json  = wp_json_encode( $seed );   // sanitized server-side by ttg_normalise()
+    // Seed fresh data server-side (30D on initial load)
+    $seed  = ttg_fetch( $cat, 'MONTH' );
+    $json  = wp_json_encode( $seed );
     $ajax  = esc_js( admin_url( 'admin-ajax.php' ) );
     $nonce = esc_js( wp_create_nonce( 'ttg_lb_nonce' ) );
     $pg    = esc_js( TTG_COPY_URL );
 
-    // Enqueue fonts only on this page - safe to call inside shortcode
     wp_enqueue_style(
         'ttg-dm-fonts',
         'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap',
@@ -248,27 +224,23 @@ function ttg_shortcode( $atts ): string {
     ob_start();
     ?>
 <script>
-/* TTG Bootstrap, injected inline by shortcode, always present before widget JS */
-window.TTG       = { ajax: '<?php echo $ajax; ?>', nonce: '<?php echo $nonce; ?>', ver: '<?php echo esc_js( TTG_VERSION ); ?>' };
-window.TTG_SEED  = <?php echo $json; /* wp_json_encode() output, safe */ ?>;
-window.POLYGUN   = '<?php echo $pg; /* esc_js() applied above, empty when disabled */ ?>';
-window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
+/* TTG Bootstrap */
+window.TTG      = { ajax: '<?php echo $ajax; ?>', nonce: '<?php echo $nonce; ?>', ver: '<?php echo esc_js( TTG_VERSION ); ?>' };
+window.TTG_SEED = <?php echo $json; ?>;
+window.POLYGUN  = '<?php echo $pg; ?>';
+window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 </script>
 
 <style>
 /* ══════════════════════════════════════════════════════════
    Polymarket Leaderboard — #ttg-lb-root scoped, theme-proof
-   Strategy: ID-level specificity beats all class-based themes.
-   !important only used where theme bleed is a real risk.
-   Buttons use both class + ID-scoped selectors to win cascade.
    ══════════════════════════════════════════════════════════ */
 
-/* ─── 1. ELEMENT RESETS (ID-scoped, safe, non-destructive) ─── */
+/* ─── 1. ELEMENT RESETS ─────────────────────────────────── */
 #ttg-lb-root { box-sizing:border-box; font-family:'DM Sans',system-ui,sans-serif; color:#0d1f3c; line-height:1.6; width:100%; padding-top:30px; padding-bottom:50px; }
 #ttg-lb-root * { box-sizing:border-box; }
 #ttg-lb-root p { margin:0; padding:0; border:none; background:none; }
 
-/* Headings: kill any theme bar/border/background */
 #ttg-lb-root h1,#ttg-lb-root h2,#ttg-lb-root h3,
 #ttg-lb-root h4,#ttg-lb-root h5,#ttg-lb-root h6 {
   border:none!important; border-top:none!important; border-bottom:none!important;
@@ -280,25 +252,18 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root h2::before, #ttg-lb-root h2::after,
 #ttg-lb-root h3::before, #ttg-lb-root h3::after { display:none!important; content:none!important; }
 
-/* Links: kill theme underlines/borders — but NOT background (buttons need it) */
 #ttg-lb-root a { text-decoration:none!important; border-bottom:none!important; outline:none!important; }
 #ttg-lb-root a:hover, #ttg-lb-root a:focus, #ttg-lb-root a:visited { text-decoration:none!important; border:none!important; outline:none!important; }
 
-/* Buttons: kill theme defaults */
 #ttg-lb-root button { font-family:'DM Sans',system-ui,sans-serif!important; outline:none!important; box-shadow:none; }
 #ttg-lb-root button:focus { outline:none!important; }
 
-/* Table: fix border-collapse only */
 #ttg-lb-root table { border-collapse:separate!important; border-spacing:0 6px!important; }
-
-/* Lists */
 #ttg-lb-root ul,#ttg-lb-root ol,#ttg-lb-root li { list-style:none!important; margin:0!important; padding:0!important; border:none!important; }
-
-/* Inputs */
 #ttg-lb-root input,#ttg-lb-root select,#ttg-lb-root textarea { font-family:'DM Sans',system-ui,sans-serif!important; }
 
 
-/* ─── 2. LAYOUT ────────────────────────────────────────── */
+/* ─── 2. LAYOUT ─────────────────────────────────────────── */
 #ttg-lb-root .ttg-section { margin-bottom:52px; }
 
 #ttg-lb-root .ttg-h2 {
@@ -331,6 +296,26 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 }
 #ttg-lb-root .ttg-last-updated { display:flex; align-items:center; gap:6px; font-size:12px; color:#7a93b4; font-family:'DM Mono',monospace; }
 #ttg-lb-root .ttg-dot-live { width:8px; height:8px; background:#00b87a; border-radius:50%; animation:ttg-pulse 2s ease-in-out infinite; box-shadow:0 0 6px rgba(0,184,122,.5); }
+
+/* Period toggle pill */
+#ttg-lb-root .ttg-period-toggle {
+  display:inline-flex; align-items:center; gap:2px;
+  background:#e8f1fd!important; border:1.5px solid #dce8f8!important;
+  border-radius:8px; padding:3px; flex-shrink:0;
+}
+#ttg-lb-root .ttg-period-opt {
+  font-family:'DM Sans',sans-serif!important; font-size:12px!important; font-weight:700!important;
+  padding:5px 13px; border-radius:5px; border:none!important; cursor:pointer;
+  color:#7a93b4!important; background:transparent!important;
+  transition:all .15s; letter-spacing:.02em;
+}
+#ttg-lb-root .ttg-period-opt.active {
+  background:#ffffff!important; color:#0f52ba!important;
+  box-shadow:0 1px 5px rgba(15,82,186,.15)!important;
+}
+#ttg-lb-root .ttg-period-opt:hover:not(.active) { color:#3a5070!important; }
+
+#ttg-lb-root .ttg-controls-right { display:flex; align-items:center; gap:8px; }
 #ttg-lb-root .ttg-refresh-btn {
   display:inline-flex; align-items:center; gap:6px;
   background:#ffffff!important; border:1.5px solid #dce8f8!important;
@@ -382,7 +367,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-rank-1 { background:linear-gradient(135deg,#ffd700,#f4a800)!important; color:#ffffff!important; box-shadow:0 2px 8px rgba(244,168,0,.35); }
 #ttg-lb-root .ttg-rank-2 { background:linear-gradient(135deg,#c8c8c8,#a0a0a0)!important; color:#ffffff!important; }
 #ttg-lb-root .ttg-rank-3 { background:linear-gradient(135deg,#cd7f32,#b06020)!important; color:#ffffff!important; }
-#ttg-lb-root .ttg-rank-other { background:#e8f1fd!important; color:#1a6fe0!important; }
+#ttg-lb-root .ttg-rank-other { background:#e8f1fd!important; color:#0f52ba!important; }
 
 
 /* ─── 7. WALLET CELL ───────────────────────────────────── */
@@ -392,12 +377,12 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-verified { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:#1a6fe0!important; color:#ffffff!important; font-size:9px; font-weight:800; flex-shrink:0; }
 #ttg-lb-root .ttg-x-link { color:#7a93b4!important; font-size:12px; transition:color .15s; text-decoration:none!important; }
 #ttg-lb-root .ttg-x-link:hover { color:#0d1f3c!important; }
-#ttg-lb-root .ttg-addr { display:flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:11px; color:#1a6fe0!important; }
+#ttg-lb-root .ttg-addr { display:flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:11px; color:#155bca!important; }
 #ttg-lb-root .ttg-copy-btn { background:none!important; border:none!important; cursor:pointer; color:#b0c4dc!important; padding:1px; transition:color .15s; flex-shrink:0; }
-#ttg-lb-root .ttg-copy-btn:hover { color:#1a6fe0!important; }
+#ttg-lb-root .ttg-copy-btn:hover { color:#155bca!important; }
 #ttg-lb-root .ttg-why-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:500; color:#3a5070!important; background:#f4f8ff!important; border:1px solid #dce8f8!important; border-radius:20px; padding:2px 9px; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px; }
 #ttg-lb-root .ttg-pnl { font-weight:700; font-family:'DM Mono',monospace; font-size:13px; }
-#ttg-lb-root .ttg-pnl.pos { color:#00a96e!important; }
+#ttg-lb-root .ttg-pnl.pos { color:#00784e!important; }
 #ttg-lb-root .ttg-pnl.neg { color:#e63946!important; }
 #ttg-lb-root .ttg-pnl.neu { color:#0d1f3c!important; }
 #ttg-lb-root .ttg-pnl-lg { font-size:15px; }
@@ -408,7 +393,6 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 /* ─── 8. ACTION BUTTONS ────────────────────────────────── */
 #ttg-lb-root .ttg-row-actions { display:flex; flex-direction:column; gap:6px; align-items:stretch; }
 
-/* Base — shared by all .ttg-btn-sm */
 #ttg-lb-root .ttg-btn-sm {
   display:inline-flex!important; align-items:center!important; justify-content:center!important;
   gap:6px; font-family:'DM Sans',sans-serif!important; font-size:12px!important; font-weight:700!important;
@@ -447,7 +431,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-card:hover { box-shadow:0 6px 20px rgba(15,82,186,.11); }
 #ttg-lb-root .ttg-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; }
 #ttg-lb-root .ttg-card-identity { display:flex; align-items:center; gap:9px; min-width:0; }
-#ttg-lb-root .ttg-addr-sm { font-family:'DM Mono',monospace; font-size:11px; color:#1a6fe0!important; }
+#ttg-lb-root .ttg-addr-sm { font-family:'DM Mono',monospace; font-size:11px; color:#155bca!important; }
 #ttg-lb-root .ttg-card-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; }
 #ttg-lb-root .ttg-card-stat { display:flex; flex-direction:column; gap:2px; }
 #ttg-lb-root .ttg-stat-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:#7a93b4!important; }
@@ -503,7 +487,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-compare-panel { background:#ffffff!important; border-top:1.5px solid #dce8f8!important; padding:22px 18px!important; animation:ttg-fadeIn .2s ease; }
 #ttg-lb-root .ttg-compare-selectors { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center; margin-bottom:16px; }
 #ttg-lb-root .ttg-compare-vs { font-size:12px; font-weight:700; color:#7a93b4; width:34px; height:34px; border-radius:50%; background:#f4f8ff!important; border:1.5px solid #dce8f8!important; display:flex; align-items:center; justify-content:center; flex-shrink:0; justify-self:center; }
-#ttg-lb-root .ttg-compare-select { width:100%; padding:9px 12px; padding-right:32px; border:1.5px solid #dce8f8!important; border-radius:9px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; color:#0d1f3c!important; background:#ffffff!important; cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg width='10' height='7' viewBox='0 0 10 7' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 6L9 1' stroke='%237a93b4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 11px center; transition:border-color .15s; }
+#ttg-lb-root .ttg-compare-select { width:100%; padding:9px 12px; padding-right:32px; border:1.5px solid #dce8f8!important; border-radius:9px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; color:#0d1f3c!important; background-color:#ffffff!important; cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg width='10' height='7' viewBox='0 0 10 7' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 6L9 1' stroke='%237a93b4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 11px center; transition:border-color .15s; }
 #ttg-lb-root .ttg-compare-select:focus { outline:none; border-color:#3b8ff5!important; box-shadow:0 0 0 3px rgba(59,143,245,.12); }
 #ttg-lb-root .ttg-compare-run-btn { display:block; width:100%; background:linear-gradient(135deg,#0f52ba,#1a6fe0)!important; color:#ffffff!important; font-family:'DM Sans',sans-serif!important; font-size:14px; font-weight:700; padding:11px 20px!important; border-radius:9px; border:none!important; cursor:pointer; transition:all .2s; box-shadow:0 3px 12px rgba(15,82,186,.22); margin-bottom:20px; }
 #ttg-lb-root .ttg-compare-run-btn:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(15,82,186,.30); color:#ffffff!important; }
@@ -564,13 +548,118 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
   #ttg-lb-root .ttg-title-full{display:none;}
   #ttg-lb-root .ttg-title-mobile{display:inline;}
   #ttg-lb-root .ttg-wotd-share-btn{margin-left:0;width:100%;justify-content:center;}
+  #ttg-lb-root .ttg-controls{flex-direction:column;align-items:flex-start;}
+  #ttg-lb-root .ttg-controls-right{width:100%;justify-content:space-between;}
 }
 @media(max-width:480px){
   #ttg-lb-root .ttg-card-stats{grid-template-columns:1fr 1fr;}
+  #ttg-lb-root .ttg-period-opt{padding:5px 9px;}
 }
+
+
+/* ══════════════════════════════════════════════════════════
+   ─── 15. NAVY BLUE THEME ──────────────────────────────────
+   All overrides scoped to .ttg-theme-navy for full isolation.
+   ══════════════════════════════════════════════════════════ */
+#ttg-lb-root.ttg-theme-navy {
+  background:linear-gradient(160deg,#06122a 0%,#091c3d 100%);
+  color:#dce8ff;
+}
+
+/* Headings */
+#ttg-lb-root.ttg-theme-navy .ttg-h2 { color:#dce8ff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-h2-lb { color:#dce8ff!important; }
+
+/* Note */
+#ttg-lb-root.ttg-theme-navy .ttg-crawler-note { color:#6a8db8; }
+#ttg-lb-root.ttg-theme-navy .ttg-crawler-note a { color:#7eb8f7!important; }
+
+/* Controls bar */
+#ttg-lb-root.ttg-theme-navy .ttg-controls { background:rgba(255,255,255,.04)!important; border-color:rgba(255,255,255,.10)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-last-updated { color:#4e6e96; }
+#ttg-lb-root.ttg-theme-navy .ttg-refresh-btn { background:rgba(255,255,255,.06)!important; border-color:rgba(255,255,255,.12)!important; color:#7eb8f7!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-refresh-btn:hover { background:rgba(255,255,255,.12)!important; border-color:rgba(126,184,247,.3)!important; color:#a8d0ff!important; }
+
+/* Period toggle */
+#ttg-lb-root.ttg-theme-navy .ttg-period-toggle { background:rgba(255,255,255,.06)!important; border-color:rgba(255,255,255,.12)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-period-opt { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-period-opt.active { background:rgba(26,111,224,.35)!important; color:#a8d0ff!important; box-shadow:0 1px 4px rgba(0,0,0,.3)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-period-opt:hover:not(.active) { color:#7eb8f7!important; }
+
+/* Filter pills */
+#ttg-lb-root.ttg-theme-navy .ttg-filter-btn { background:rgba(255,255,255,.04)!important; border-color:rgba(255,255,255,.10)!important; color:#7a9cc4!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-filter-btn:hover { background:rgba(59,143,245,.12)!important; border-color:rgba(59,143,245,.3)!important; color:#a8d0ff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-filter-btn.active { background:linear-gradient(135deg,#0f52ba,#1a6fe0)!important; border-color:transparent!important; color:#ffffff!important; }
+
+/* Table */
+#ttg-lb-root.ttg-theme-navy .ttg-table thead th { color:#3e5e82!important; border-bottom-color:rgba(255,255,255,.08)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-table tbody tr { background:rgba(255,255,255,.04)!important; box-shadow:0 1px 4px rgba(0,0,0,.35),0 0 0 1px rgba(255,255,255,.06)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-table tbody tr:hover { background:rgba(255,255,255,.07)!important; box-shadow:0 6px 24px rgba(0,0,0,.45),0 0 0 1.5px rgba(59,143,245,.25)!important; transform:translateY(-1px); }
+
+/* Wallet cells */
+#ttg-lb-root.ttg-theme-navy .ttg-wallet-name { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-addr { color:#7eb8f7!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-copy-btn { color:#2e4e70!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-copy-btn:hover { color:#7eb8f7!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-why-badge { color:#7a9cc4!important; background:rgba(255,255,255,.05)!important; border-color:rgba(255,255,255,.09)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-x-link { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-x-link:hover { color:#7eb8f7!important; }
+
+/* PNL / values */
+#ttg-lb-root.ttg-theme-navy .ttg-pnl.pos { color:#00e09a!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-pnl.neg { color:#ff4d5a!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-pnl.neu { color:#dce8ff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-vol { color:#7a9cc4!important; }
+
+/* Tag / rank */
+#ttg-lb-root.ttg-theme-navy .ttg-tag { background:rgba(59,143,245,.15)!important; color:#7eb8f7!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-rank-other { background:rgba(59,143,245,.16)!important; color:#7eb8f7!important; }
+
+/* Mobile cards */
+#ttg-lb-root.ttg-theme-navy .ttg-card { background:rgba(255,255,255,.04)!important; border-color:rgba(255,255,255,.08)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-card:hover { box-shadow:0 6px 20px rgba(0,0,0,.4)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-stat-label { color:#3e5e82!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-stat-val { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-addr-sm { color:#7eb8f7!important; }
+
+/* Compare tool */
+#ttg-lb-root.ttg-theme-navy .ttg-compare-wrap { border-color:rgba(255,255,255,.09)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle { background:rgba(255,255,255,.04)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle:hover,
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle.open { background:rgba(255,255,255,.07)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-text strong { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-text span { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-icon { background:rgba(59,143,245,.15)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-chevron { color:#4e6e96; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-panel { background:rgba(255,255,255,.03)!important; border-top-color:rgba(255,255,255,.08)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-select { border-color:rgba(255,255,255,.12)!important; color:#c8deff!important; background-color:rgba(255,255,255,.05)!important; background-image:url("data:image/svg+xml,%3Csvg width='10' height='7' viewBox='0 0 10 7' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 6L9 1' stroke='%234e6e96' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-select:focus { border-color:rgba(59,143,245,.5)!important; box-shadow:0 0 0 3px rgba(59,143,245,.15)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-compare-vs { background:rgba(255,255,255,.06)!important; border-color:rgba(255,255,255,.12)!important; color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-card { border-color:rgba(255,255,255,.09)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-winner { border-color:rgba(0,184,122,.3)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-winner .ttg-cmp-head { background:rgba(0,184,122,.08)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-loser .ttg-cmp-head { background:rgba(255,255,255,.03)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-name { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-addr { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-row { border-bottom-color:rgba(255,255,255,.05)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-row-lbl { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-row-val.neu { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-bar-wrap { background:rgba(255,255,255,.08)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-verdict { background:rgba(59,143,245,.07)!important; border-color:rgba(59,143,245,.18)!important; color:#7a9cc4!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-verdict strong { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-verdict a { color:#7eb8f7!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-note { color:#4e6e96!important; }
+
+/* Loading */
+#ttg-lb-root.ttg-theme-navy .ttg-loading { color:#4e6e96; }
+#ttg-lb-root.ttg-theme-navy .ttg-spinner { border-color:rgba(255,255,255,.09); border-top-color:#7eb8f7; }
+#ttg-lb-root.ttg-theme-navy .ttg-no-results { color:#4e6e96; }
+
+/* Footer link */
+#ttg-lb-root.ttg-theme-navy .ttg-footer-link { color:rgba(220,232,255,.3)!important; }
 </style>
 
-<div class="ttg-wrap" id="ttg-lb-root">
+<div class="ttg-wrap<?php echo esc_attr( $theme_class ); ?>" id="ttg-lb-root">
 <!-- ═══════════ LEADERBOARD SECTION ═══════════ -->
 <section class="ttg-section" id="ttg-leaderboard-section" aria-label="Polymarket Top Wallets Leaderboard">
 
@@ -581,7 +670,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
   </h2>
 
   <p class="ttg-crawler-note">
-    Updated every hour via the official Polymarket API. Ranked by 30-day PNL.
+    Updated live via the official Polymarket API. Ranked by <span id="ttg-period-label">30-day</span> PNL.
     Minimum 30 resolved trades and 60%+ win rate required to appear.
     Use the category filters to find wallets focused on Politics, Crypto, Sports and more.
   </p>
@@ -592,10 +681,19 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
       <span class="ttg-dot-live" aria-hidden="true"></span>
       <span id="ttg-ts">Loading&hellip;</span>
     </div>
-    <button class="ttg-refresh-btn" id="ttg-rbtn" aria-label="Refresh leaderboard">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-      Refresh
-    </button>
+
+    <!-- 30D / 7D period toggle -->
+    <div class="ttg-period-toggle" id="ttg-period-toggle" role="group" aria-label="Time period">
+      <button class="ttg-period-opt active" data-period="MONTH" aria-pressed="true">30D</button>
+      <button class="ttg-period-opt" data-period="WEEK" aria-pressed="false">7D</button>
+    </div>
+
+    <div class="ttg-controls-right">
+      <button class="ttg-refresh-btn" id="ttg-rbtn" aria-label="Refresh leaderboard">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Refresh
+      </button>
+    </div>
   </div>
 
   <!-- Category filters -->
@@ -617,7 +715,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
         <tr>
           <th scope="col" style="width:44px">#</th>
           <th scope="col">Wallet</th>
-          <th scope="col">30d&nbsp;PNL</th>
+          <th scope="col" id="ttg-pnl-header">30d&nbsp;PNL</th>
           <th scope="col">Volume</th>
           <th scope="col">Focus</th>
           <th scope="col" style="width:140px;text-align:center">Action</th>
@@ -667,14 +765,13 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
           </div>
           <div class="ttg-wotd-stats">
             <div class="ttg-wotd-stat">
-              <span class="ttg-wotd-stat-label">30d PNL</span>
+              <span class="ttg-wotd-stat-label" id="ttg-wotd-pnl-label">30d PNL</span>
               <span class="ttg-wotd-stat-value pos" id="ttg-wotd-pnl">-</span>
             </div>
             <div class="ttg-wotd-stat">
               <span class="ttg-wotd-stat-label">Volume</span>
               <span class="ttg-wotd-stat-value neu" id="ttg-wotd-vol">-</span>
             </div>
-
           </div>
           <div class="ttg-wotd-analysis">
             <div class="ttg-wotd-analysis-label">&#128202; Why this wallet leads today</div>
@@ -686,7 +783,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
             <div class="ttg-wotd-rank-num">#<span id="ttg-wotd-rank">1</span></div>
             <div class="ttg-wotd-rank-lbl">Leaderboard</div>
           </div>
-          <?php if ( $show_copy_links ) : ?><a href="<?php echo esc_url( $copy_link_url ); ?>" class="ttg-btn-sm ttg-btn-copy-trade ttg-wotd-copy-btn-link" id="ttg-wotd-copy-link" target="_blank" rel="noopener noreferrer">⚡ CopyTrade Wallet</a><?php endif; ?>
+          <?php if ( $show_copy_links ) : ?><a href="<?php echo esc_url( $copy_link_url ); ?>" class="ttg-btn-sm ttg-btn-copy-trade ttg-wotd-copy-btn-link" id="ttg-wotd-copy-link" target="_blank" rel="noopener noreferrer">&#9889; CopyTrade Wallet</a><?php endif; ?>
           <a href="https://polymarket.com/profile/" class="ttg-btn-sm ttg-btn-poly ttg-btn-poly-wotd" id="ttg-wotd-poly-link" target="_blank" rel="noopener noreferrer">View on Polymarket</a>
         </div>
       </div>
@@ -731,12 +828,11 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 </section><!-- /#ttg-compare-section -->
 <?php endif; ?>
 
-<p style="text-align:right;margin-top:18px;margin-bottom:0;font-size:11px;opacity:0.38;letter-spacing:.01em;">
+<p style="text-align:right;margin-top:18px;margin-bottom:0;font-size:11px;opacity:0.38;letter-spacing:.01em;" class="ttg-footer-link">
   <a href="https://telegramtrading.net/category/polymarket/" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;border-bottom:1px dotted currentColor;">Polymarket insights &amp; guides</a>
 </p>
 
 </div><!-- /.ttg-wrap -->
-
 
 
 <!-- ═══════════ WIDGET JAVASCRIPT ═══════════ -->
@@ -746,7 +842,6 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
   /* ── Config ─────────────────────────────────────────── */
   var POLYGUN = (window.TTG_COPY && window.POLYGUN) ? window.POLYGUN : '';
-  var TODAY   = new Date().toISOString().slice(0, 10);
 
   /* Exact category mapping matching official API enum */
   var CAT_MAP = {
@@ -760,8 +855,9 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     'Finance':  'FINANCE'
   };
 
-  var activeCat  = 'All';
-  var liveData   = [];   // current category data
+  var activeCat    = 'All';
+  var activePeriod = 'MONTH';   // MONTH = 30D, WEEK = 7D
+  var liveData     = [];
 
   /* ── Formatters ─────────────────────────────────────── */
   function fmt(n) {
@@ -781,8 +877,8 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     if (abs >= 1e6)      num = (abs / 1e6).toFixed(2) + 'M';
     else if (abs >= 1e3) num = (abs / 1e3).toFixed(1) + 'K';
     else                 num = Math.round(abs).toString();
-    var str = (n >= 0 ? '+' : '−') + num + ' USDC';
-    return { str: str, cls: n >= 0 ? 'pos' : 'neg' };
+    var str = (n > 0 ? '+' : n < 0 ? '−' : '') + num + ' USDC';
+    return { str: str, cls: n > 0 ? 'pos' : n < 0 ? 'neg' : 'neu' };
   }
 
   function escH(s) {
@@ -802,14 +898,20 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     return ['ttg-rank-1','ttg-rank-2','ttg-rank-3'][i] || 'ttg-rank-other';
   }
 
+  /* Period label helpers */
+  function periodShort() { return activePeriod === 'WEEK' ? '7d'      : '30d'; }
+  function periodLong()  { return activePeriod === 'WEEK' ? '7-day'   : '30-day'; }
+  function periodWord()  { return activePeriod === 'WEEK' ? 'week'    : 'month'; }
+
   /* ── Why-badge copy ──────────────────────────────────── */
   function whyBadge(w, i, cat) {
     var p   = parseFloat(w.pnl) || 0;
     var v   = parseFloat(w.vol) || 0;
     var eff = v > 0 ? p / v * 100 : 0;
-    if (i === 0)         return '🏆 #1 today, highest 30-day PNL';
+    var pl  = periodLong();
+    if (i === 0)         return '🏆 #1 today, highest ' + pl + ' PNL';
     if (eff > 10)        return '🔥 ' + eff.toFixed(0) + '% PNL/Vol ratio in ' + cat;
-    if (p > 8000)        return '⚡ ' + fmt(p) + ' profit this month';
+    if (p > 8000)        return '⚡ ' + fmt(p) + ' profit this ' + periodWord();
     if (v > 60000)       return '💰 ' + fmt(v) + ' volume, top activity';
     if (i === 1)         return '🥈 Runner-up, consistent ' + cat + ' edge';
     if (i === 2)         return '🥉 Top 3, strong ' + cat + ' track record';
@@ -864,7 +966,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
         + '<td><span class="ttg-tag">' + escH(label) + '</span></td>'
         + '<td>'
           + '<div class="ttg-row-actions">'
-          + (window.TTG_COPY && POLYGUN ? '<a href="' + escH(POLYGUN) + '" class="ttg-btn-sm ttg-btn-copy-trade" target="_blank" rel="noopener noreferrer">⚡ CopyTrade</a>' : '')
+          + (window.TTG_COPY && POLYGUN ? '<a href="' + escH(POLYGUN) + '" class="ttg-btn-sm ttg-btn-copy-trade" target="_blank" rel="noopener noreferrer">&#9889; CopyTrade</a>' : '')
           + '<a href="https://polymarket.com/profile/' + encodeURIComponent(addr) + '" class="ttg-btn-sm ttg-btn-poly" target="_blank" rel="noopener noreferrer">View Profile</a>'
           + '</div>'
         + '</td>'
@@ -875,6 +977,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
   /* ── Mobile cards ────────────────────────────────────── */
   function buildCards(data, cat) {
     var label = cat === 'All' ? 'All' : cat;
+    var ps    = periodShort();
     return data.slice(0, 10).map(function (w, i) {
       var addr  = w.proxyWallet || '';
       var short = shortAddr(addr);
@@ -895,13 +998,13 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
         + '</div>'
         + '<span class="ttg-why-badge ttg-why-badge-card">' + why + '</span>'
         + '<div class="ttg-card-stats">'
-          + '<div class="ttg-card-stat"><span class="ttg-stat-label">30d PNL</span><span class="ttg-pnl ' + p.cls + '">' + p.str + '</span></div>'
+          + '<div class="ttg-card-stat"><span class="ttg-stat-label">' + ps + ' PNL</span><span class="ttg-pnl ' + p.cls + '">' + p.str + '</span></div>'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">Volume</span><span class="ttg-vol">' + fmt(v) + '</span></div>'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">Rank</span><span class="ttg-stat-val">' + (w.rank || i+1) + '</span></div>'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">Focus</span><span class="ttg-tag">' + escH(label) + '</span></div>'
         + '</div>'
         + '<div class="ttg-card-actions">'
-          + (window.TTG_COPY && POLYGUN ? '<a href="' + escH(POLYGUN) + '" class="ttg-btn-sm ttg-btn-copy-trade" style="flex:1" target="_blank" rel="noopener noreferrer">⚡ CopyTrade</a>' : '')
+          + (window.TTG_COPY && POLYGUN ? '<a href="' + escH(POLYGUN) + '" class="ttg-btn-sm ttg-btn-copy-trade" style="flex:1" target="_blank" rel="noopener noreferrer">&#9889; CopyTrade</a>' : '')
           + '<a href="https://polymarket.com/profile/' + encodeURIComponent(addr) + '" class="ttg-btn-sm ttg-btn-poly" style="flex:1" target="_blank" rel="noopener noreferrer">View Profile</a>'
         + '</div>'
         + '</article>';
@@ -915,9 +1018,11 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     var eff = v > 0 ? (p / v * 100).toFixed(1) : 0;
     var n   = escH(w.userName || 'This wallet');
     var cl  = cat === 'All' ? 'prediction markets' : cat;
+    var pl  = periodLong();
+    var pw  = periodWord();
 
     var parts = [];
-    parts.push('<strong>' + n + '</strong> holds #1 on today\'s leaderboard with <strong>' + fmt(p) + '</strong> in 30-day profit.');
+    parts.push('<strong>' + n + '</strong> holds #1 on today\'s leaderboard with <strong>' + fmt(p) + '</strong> in ' + pl + ' profit.');
 
     if (parseFloat(eff) > 8) {
       parts.push('A PNL-to-volume ratio of <strong>' + eff + '%</strong> is exceptional, disciplined sizing, not random volume.');
@@ -928,9 +1033,9 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     }
 
     if (p > 8000) {
-      parts.push('Profit at this level in a single month signals repeatable edge, not a lucky outlier.');
+      parts.push('Profit at this level in a single ' + pw + ' signals repeatable edge, not a lucky outlier.');
     } else if (p > 3000) {
-      parts.push('Consistent profitability above $3K per month in a volatile category indicates a genuine analytical advantage.');
+      parts.push('Consistent profitability above $3K per ' + pw + ' in a volatile category indicates a genuine analytical advantage.');
     }
 
     return parts.join(' ');
@@ -955,6 +1060,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     if ($id('ttg-wotd-rank'))     $id('ttg-wotd-rank').textContent     = w.rank || '1';
     if ($id('ttg-wotd-vol'))      $id('ttg-wotd-vol').textContent      = fmt(v);
     if ($id('ttg-wotd-analysis')) $id('ttg-wotd-analysis').innerHTML   = buildWotdAnalysis(w, cLbl);
+    if ($id('ttg-wotd-pnl-label')) $id('ttg-wotd-pnl-label').textContent = periodShort() + ' PNL';
 
     var pnlEl = $id('ttg-wotd-pnl');
     if (pnlEl) {
@@ -962,20 +1068,17 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
       pnlEl.className   = 'ttg-wotd-stat-value ' + p.cls;
     }
 
-    // Share link
     var shareEl = $id('ttg-wotd-share');
     if (shareEl) {
-      var tweet = '🏆 Polymarket Wallet of the Day: ' + name + ': ' + p.str + ' this month.';
+      var tweet = '🏆 Polymarket Wallet of the Day: ' + name + ': ' + p.str + ' this ' + periodWord() + '.';
       shareEl.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(tweet);
     }
 
-    // Polymarket profile link
     var polyLink = $id('ttg-wotd-poly-link');
     if (polyLink && addr) {
       polyLink.href = 'https://polymarket.com/profile/' + encodeURIComponent(addr);
     }
 
-    // Copy button
     var copyBtn = $id('ttg-wotd-copy-btn');
     if (copyBtn) {
       copyBtn.onclick = function () {
@@ -987,7 +1090,6 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
       };
     }
 
-    // Show section
     var sec = document.getElementById('ttg-wotd-section');
     if (sec) sec.style.display = '';
   }
@@ -1064,10 +1166,10 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
           + (isWinner ? '<span class="ttg-cmp-badge">🏆 Leading</span>' : '')
         + '</div>'
         + '<div class="ttg-cmp-rows">'
-          + cmpRow('30d PNL',  cp.str,           Math.abs(parseFloat(w.pnl)||0) / maxP * 100, cp.cls)
-          + cmpRow('Volume',   fmt(cv),           cv / maxV * 100,                             'neu')
-          + cmpRow('PNL/Vol',  ce.toFixed(1)+'%', Math.abs(ce) / maxE * 100,                  eCls)
-          + cmpRow('Rank',     '#' + (idx+1),     0,                                            'neu', true)
+          + cmpRow(periodShort() + ' PNL', cp.str,             Math.abs(parseFloat(w.pnl)||0) / maxP * 100, cp.cls)
+          + cmpRow('Volume',               fmt(cv),            cv / maxV * 100,                             'neu')
+          + cmpRow('PNL/Vol',              ce.toFixed(1)+'%',  Math.abs(ce) / maxE * 100,                  eCls)
+          + cmpRow('Rank',                 '#' + (idx+1),      0,                                           'neu', true)
         + '</div>'
         + '</div>';
     }
@@ -1118,9 +1220,9 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
   function render(data, cat) {
     liveData = Array.isArray(data) ? data : [];
 
-    var tb  = document.getElementById('ttg-tbody');
-    var cd  = document.getElementById('ttg-cards');
-    var ts  = document.getElementById('ttg-ts');
+    var tb     = document.getElementById('ttg-tbody');
+    var cd     = document.getElementById('ttg-cards');
+    var ts     = document.getElementById('ttg-ts');
     var cmpRes = document.getElementById('ttg-cmp-result');
 
     if (tb) {
@@ -1136,48 +1238,46 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     if (cmpRes) { cmpRes.classList.remove('show'); cmpRes.innerHTML = ''; }
 
+    // Update table header
+    var hdr = document.getElementById('ttg-pnl-header');
+    if (hdr) hdr.innerHTML = periodShort() + '&nbsp;PNL';
+
+    // Update period label in crawler note
+    var lbl = document.getElementById('ttg-period-label');
+    if (lbl) lbl.textContent = periodLong();
+
     try { renderWotd(liveData, cat); } catch (e) { console.warn('[TTG] renderWotd:', e); }
     try { populateSelects(liveData); } catch (e) { console.warn('[TTG] populateSelects:', e); }
   }
 
-  /* ── Fetch ───────────────────────────────────────────── */
+  /* ── Fetch — always fresh, no client-side caching ────── */
   function fetchCat(cat, force) {
-    var cacheKey = 'ttg3_' + TODAY + '_' + cat;
-    var btn      = document.getElementById('ttg-rbtn');
+    var btn = document.getElementById('ttg-rbtn');
 
     function lock()   { if (btn) { btn.classList.add('ttg-spinning'); btn.disabled = true; } }
     function unlock() { if (btn) { btn.classList.remove('ttg-spinning'); btn.disabled = false; } }
 
-    /* Serve seed on first All load */
-    if (!force && cat === 'All' && window.TTG_SEED && window.TTG_SEED.length) {
+    /* Serve server-side seed on very first load (30D / All) */
+    if (!force && cat === 'All' && activePeriod === 'MONTH' && window.TTG_SEED && window.TTG_SEED.length) {
       render(window.TTG_SEED, cat);
-      try { sessionStorage.setItem(cacheKey, JSON.stringify(window.TTG_SEED)); } catch (e) {}
       window.TTG_SEED = null;
       return;
-    }
-
-    /* SessionStorage cache */
-    if (!force) {
-      try {
-        var hit = sessionStorage.getItem(cacheKey);
-        if (hit) { render(JSON.parse(hit), cat); return; }
-      } catch (e) {}
     }
 
     lock();
     loading();
 
-    /* Build URL - WP AJAX proxy if available, else direct */
     var apiCat = CAT_MAP[cat] || 'OVERALL';
     var url;
     if (window.TTG && window.TTG.ajax && window.TTG.nonce) {
       url = window.TTG.ajax + '?action=ttg_leaderboard'
           + '&category=' + encodeURIComponent(apiCat)
+          + '&period='   + encodeURIComponent(activePeriod)
           + '&nonce='    + encodeURIComponent(window.TTG.nonce);
     } else {
-      /* Direct fallback, may work from some servers without CORS issues */
+      /* Direct fallback */
       url = 'https://data-api.polymarket.com/v1/leaderboard'
-          + '?limit=10&offset=0&timePeriod=MONTH&orderBy=PNL'
+          + '?limit=10&offset=0&timePeriod=' + encodeURIComponent(activePeriod) + '&orderBy=PNL'
           + '&category=' + encodeURIComponent(apiCat);
     }
 
@@ -1200,10 +1300,8 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     })
     .then(function (d) {
       clearTimeout(tid);
-      /* Official API returns a plain array; WP proxy passes it through */
       var list = Array.isArray(d) ? d : (d.data || d.results || d.leaderboard || []);
       if (!Array.isArray(list) || list.length === 0) throw new Error('Empty response');
-      try { sessionStorage.setItem(cacheKey, JSON.stringify(list)); } catch (e) {}
       render(list, cat);
       unlock();
     })
@@ -1226,9 +1324,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
   window.ttgFetch = function () { fetchCat(activeCat, true); };
 
-  /* ttgCopyAddr removed - handled via delegated listener */
-
-  /* ── Event listeners (no inline onclick= needed) ────── */
+  /* ── Event listeners ────────────────────────────────── */
   function ttgBind() {
     // Refresh button
     var rbtn = document.getElementById('ttg-rbtn');
@@ -1239,6 +1335,24 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
       btn.addEventListener('click', function () { window.ttgFilter(btn.dataset.cat || 'All', btn); });
     });
 
+    // Period toggle buttons (30D / 7D)
+    document.querySelectorAll('.ttg-period-opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var newPeriod = btn.dataset.period || 'MONTH';
+        if (newPeriod === activePeriod) return;
+        activePeriod = newPeriod;
+        // Update toggle UI
+        document.querySelectorAll('.ttg-period-opt').forEach(function (b) {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+        // Force fresh fetch with new period
+        fetchCat(activeCat, true);
+      });
+    });
+
     // Compare toggle
     var cmpToggle = document.getElementById('ttg-cmp-toggle');
     if (cmpToggle) { cmpToggle.addEventListener('click', function () { window.ttgToggleCompare(); }); }
@@ -1247,7 +1361,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     var cmpRun = document.getElementById('ttg-cmp-run');
     if (cmpRun) { cmpRun.addEventListener('click', function () { window.ttgRunCompare(); }); }
 
-    // Copy address buttons (delegated - rows re-render on category switch)
+    // Copy address buttons (delegated)
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.ttg-copy-btn');
       if (!btn) return;
@@ -1271,7 +1385,7 @@ window.TTG_COPY  = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ADMIN  - menu, setup wizard, settings, cache management
+   ADMIN  - menu, settings, cache management
 ═══════════════════════════════════════════════════════════ */
 add_action( 'admin_menu', 'ttg_admin_menu' );
 function ttg_admin_menu(): void {
@@ -1288,31 +1402,15 @@ function ttg_admin_menu(): void {
 add_action( 'admin_notices', function (): void {
     $screen = get_current_screen();
     if ( ! $screen || strpos( $screen->id, 'ttg-leaderboard' ) === false ) { return; }
-    if ( ! empty( $_GET['ttg_cleared'] ) ) {
-        echo '<div class="notice notice-success is-dismissible"><p><strong>Polymarket LB:</strong> Cache cleared.</p></div>';
-    }
     if ( ! empty( $_GET['ttg_saved'] ) ) {
         echo '<div class="notice notice-success is-dismissible"><p><strong>Polymarket LB:</strong> Settings saved.</p></div>';
     }
 } );
 
-/* ── Clear cache ── */
-add_action( 'admin_post_ttg_clear_cache', 'ttg_clear_cache' );
-function ttg_clear_cache(): void {
-    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized', 403 ); }
-    check_admin_referer( 'ttg_clear_cache' );
-    foreach ( ttg_categories() as $c ) {
-        delete_transient( 'ttg_lb3_' . strtolower( $c ) );
-    }
-    wp_safe_redirect( add_query_arg( 'ttg_cleared', '1', wp_get_referer() ) );
-    exit;
-}
-
-/* ── Combined Settings + Setup + Cache admin page ── */
+/* ── Admin page ── */
 function ttg_admin_page(): void {
-    $opts        = ttg_get_options();
-    $cats        = ttg_categories();
-    $is_setup    = ! empty( $_GET['ttg_setup'] );
+    $opts     = ttg_get_options();
+    $is_setup = ! empty( $_GET['ttg_setup'] );
     ?>
     <div class="wrap" id="ttg-admin">
     <style>
@@ -1323,37 +1421,39 @@ function ttg_admin_page(): void {
     #ttg-admin .ttg-fcard-icon{font-size:28px;line-height:1;}
     #ttg-admin .ttg-fcard h3{font-size:14px;font-weight:700;color:#1d2327;margin:0 0 5px;}
     #ttg-admin .ttg-fcard p{font-size:13px;color:#50575e;line-height:1.6;margin:0;}
-    #ttg-admin .ttg-fcard-disclosure{background:#fff8e5;border:1px solid #f0c000;border-radius:6px;padding:9px 12px;margin-top:10px;font-size:12px;color:#5a4200;line-height:1.6;}
-    #ttg-admin .ttg-fcard-disclosure strong{color:#3a2b00;}
-    #ttg-admin .ttg-url-field{width:100%;margin-top:8px;padding:7px 10px;border:1px solid #8c8f94;border-radius:4px;font-size:13px;display:none;}
-    #ttg-admin .ttg-fcard-on .ttg-url-field{display:block;}
     #ttg-admin .ttg-section-head{border-bottom:1px solid #dcdcde;margin:28px 0 16px;padding-bottom:8px;}
     #ttg-admin .ttg-section-head h2{font-size:16px;margin:0;}
+    /* Theme picker */
+    #ttg-admin .ttg-theme-picker{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+    #ttg-admin .ttg-theme-opt{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:600;padding:10px 16px;border:2px solid #dce8f8;border-radius:9px;transition:border-color .15s;flex:1;min-width:130px;}
+    #ttg-admin .ttg-theme-opt input{display:none;}
+    #ttg-admin .ttg-theme-opt.ttg-theme-sel{border-color:#2271b1;}
+    #ttg-admin .ttg-theme-swatch{width:22px;height:22px;border-radius:5px;flex-shrink:0;border:1px solid rgba(0,0,0,.12);}
+    #ttg-admin .ttg-theme-opt-navy{background:#06122a;color:#c8deff!important;border-color:#1a3a60;}
+    #ttg-admin .ttg-theme-opt-navy.ttg-theme-sel{border-color:#7eb8f7;}
+    #ttg-admin .ttg-live-badge{display:inline-flex;align-items:center;gap:7px;background:#e8f9f2;border:1px solid #a8e8cc;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;color:#0a6040;}
+    #ttg-admin .ttg-live-dot{width:8px;height:8px;border-radius:50%;background:#00b87a;}
     </style>
 
-    <h1>&#127942; Polymarket Leaderboard <small style="font-size:13px;font-weight:400;color:#646970;">v<?php echo esc_html( TTG_VERSION ); ?> — GitHub Build</small></h1>
+    <h1>&#127942; Polymarket Leaderboard <small style="font-size:13px;font-weight:400;color:#646970;">v<?php echo esc_html( TTG_VERSION ); ?></small></h1>
 
     <?php if ( $is_setup ) : ?>
     <div class="notice notice-info" style="margin:12px 0 20px"><p>
-        <strong>Welcome!</strong> Choose which optional features to enable on your leaderboard page.
-        Enable the extra features below when ready.
+        <strong>Welcome!</strong> Enable optional features below and choose your preferred widget theme.
     </p></div>
     <?php endif; ?>
 
-    <!-- ── Feature settings ── -->
     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
         <input type="hidden" name="action" value="ttg_save_options">
         <?php wp_nonce_field( 'ttg_save_options' ); ?>
 
         <div class="ttg-section-head"><h2>&#9881; Widget Features</h2></div>
-        <p style="color:#50575e;font-size:13px;margin-bottom:16px;">
-            Enable the optional extras below.
-        </p>
+        <p style="color:#50575e;font-size:13px;margin-bottom:16px;">Enable the optional extras below.</p>
 
         <div class="ttg-feature-cards">
 
             <!-- Wallet of the Day -->
-            <div class="ttg-fcard<?php echo $opts['show_wotd'] ? ' ttg-fcard-on' : ''; /* boolean, safe */ ?>" id="ttg-card-wotd">
+            <div class="ttg-fcard<?php echo $opts['show_wotd'] ? ' ttg-fcard-on' : ''; ?>" id="ttg-card-wotd">
                 <div class="ttg-fcard-head">
                     <span class="ttg-fcard-icon">&#11088;</span>
                     <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;font-weight:600;">
@@ -1362,11 +1462,11 @@ function ttg_admin_page(): void {
                     </label>
                 </div>
                 <h3>Wallet of the Day</h3>
-                <p>Spotlights the #1 ranked wallet each day with a performance breakdown card. Purely informational - shows public on-chain data only.</p>
+                <p>Spotlights the #1 ranked wallet each day with a performance breakdown card. Purely informational — shows public on-chain data only.</p>
             </div>
 
             <!-- Compare tool -->
-            <div class="ttg-fcard<?php echo $opts['show_compare'] ? ' ttg-fcard-on' : ''; /* boolean, safe */ ?>" id="ttg-card-compare">
+            <div class="ttg-fcard<?php echo $opts['show_compare'] ? ' ttg-fcard-on' : ''; ?>" id="ttg-card-compare">
                 <div class="ttg-fcard-head">
                     <span class="ttg-fcard-icon">&#9878;</span>
                     <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;font-weight:600;">
@@ -1378,11 +1478,32 @@ function ttg_admin_page(): void {
                 <p>Lets visitors compare any two wallets from the leaderboard side-by-side: PNL, volume, and efficiency ratio. No external links involved.</p>
             </div>
 
+            <!-- Theme -->
+            <div class="ttg-fcard" id="ttg-card-theme">
+                <div class="ttg-fcard-head">
+                    <span class="ttg-fcard-icon">&#127912;</span>
+                </div>
+                <h3>Widget Theme</h3>
+                <p>Choose the visual style for your leaderboard widget. White is the clean default; Navy Blue uses a dark background with white text.</p>
+                <div class="ttg-theme-picker">
+                    <label class="ttg-theme-opt<?php echo $opts['theme'] !== 'navy' ? ' ttg-theme-sel' : ''; ?>" id="ttg-topt-white">
+                        <input type="radio" name="theme" value="white" <?php checked( $opts['theme'] !== 'navy', true ); ?>>
+                        <span class="ttg-theme-swatch" style="background:#ffffff;border:1px solid #dce8f8;"></span>
+                        &#9728; White
+                    </label>
+                    <label class="ttg-theme-opt ttg-theme-opt-navy<?php echo $opts['theme'] === 'navy' ? ' ttg-theme-sel' : ''; ?>" id="ttg-topt-navy">
+                        <input type="radio" name="theme" value="navy" <?php checked( $opts['theme'], 'navy' ); ?>>
+                        <span class="ttg-theme-swatch" style="background:#0a1d3f;border:1px solid #1a3a60;"></span>
+                        &#127771; Navy Blue
+                    </label>
+                </div>
+            </div>
+
         </div>
 
         <p>
             <button type="submit" class="button button-primary" style="font-size:14px;padding:6px 18px;">
-                &#10003; Save Feature Settings
+                &#10003; Save Settings
             </button>
             <?php if ( $is_setup ) : ?>
             <a href="<?php echo esc_url( admin_url( 'options-general.php?page=ttg-leaderboard' ) ); ?>" class="button" style="margin-left:8px;">
@@ -1392,47 +1513,42 @@ function ttg_admin_page(): void {
         </p>
     </form>
 
-    <!-- ── Cache status ── -->
-    <div class="ttg-section-head"><h2>&#128202; Cache Status</h2></div>
-    <table class="widefat" style="max-width:420px">
-        <thead><tr><th>Category</th><th>Cached Entries</th></tr></thead>
-        <tbody>
-        <?php foreach ( $cats as $c ) :
-            $v = get_transient( 'ttg_lb3_' . strtolower( $c ) ); ?>
-            <tr>
-                <td><?php echo esc_html( $c ); ?></td>
-                <td><?php echo is_array( $v ) && count( $v ) > 0
-                    ? '<span style="color:#0a8040">&#10003; ' . esc_html( (string) count( $v ) ) . ' entries</span>'
-                    : '<span style="color:#aaa">not cached</span>'; ?></td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:10px">
-        <input type="hidden" name="action" value="ttg_clear_cache">
-        <?php wp_nonce_field( 'ttg_clear_cache' ); ?>
-        <button type="submit" class="button button-secondary">&#128465; Clear All Cached Data</button>
-    </form>
+    <!-- ── API Status ── -->
+    <div class="ttg-section-head"><h2>&#128202; Data Source</h2></div>
+    <p>
+        <span class="ttg-live-badge"><span class="ttg-live-dot"></span> Live API — No Caching</span>
+    </p>
+    <p style="font-size:13px;color:#50575e;margin-top:10px;">
+        This plugin fetches fresh data from the Polymarket API on every request. No transient caching is used, so visitors always see the latest leaderboard rankings.
+    </p>
 
-    <!-- ── How it works ── -->
+    <!-- ── Usage ── -->
     <div class="ttg-section-head"><h2>&#128196; Usage</h2></div>
     <table class="form-table" style="max-width:640px"><tbody>
         <tr><th>Shortcode</th><td><code>[polymarket_leaderboard]</code></td></tr>
         <tr><th>Default category</th><td><code>[polymarket_leaderboard category="CRYPTO"]</code></td></tr>
         <tr><th>API</th><td><code>https://data-api.polymarket.com/v1/leaderboard</code></td></tr>
-        <tr><th>Cache</th><td>1 hour per category via WP Transients. Falls back to demo data if API is unreachable.</td></tr>
+        <tr><th>Periods</th><td>30D (MONTH) and 7D (WEEK) — toggled on the widget by visitors.</td></tr>
+        <tr><th>Theme</th><td>White or Navy Blue — set above and applied to all instances of the shortcode.</td></tr>
     </tbody></table>
 
     </div><!-- /.wrap -->
 
     <script>
+    // Checkbox → card border
     document.querySelectorAll('[data-card]').forEach(function(cb) {
         cb.addEventListener('change', function() {
             var el = document.getElementById('ttg-card-' + cb.dataset.card);
             if (el) el.classList.toggle('ttg-fcard-on', cb.checked);
         });
     });
+    // Theme radio → selected highlight
+    document.querySelectorAll('[name="theme"]').forEach(function(r) {
+        r.addEventListener('change', function() {
+            document.querySelectorAll('.ttg-theme-opt').forEach(function(o) { o.classList.remove('ttg-theme-sel'); });
+            r.closest('.ttg-theme-opt').classList.add('ttg-theme-sel');
+        });
+    });
     </script>
     <?php
 }
-
