@@ -3,7 +3,7 @@
 Embed a **live Polymarket top-wallet leaderboard** on any WordPress page with a single shortcode. Pulls the top 10 traders ranked by 30-day or 7-day PNL from the official Polymarket API — server-side, always fresh (no caching), and fully theme-isolated.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPLv2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
-![Version](https://img.shields.io/badge/version-3.4.0-green)
+![Version](https://img.shields.io/badge/version-3.5.1-green)
 ![WordPress](https://img.shields.io/badge/WordPress-5.5%2B-blue)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple)
 
@@ -155,14 +155,38 @@ This plugin fetches **public** data from `https://data-api.polymarket.com` only.
 
 ## Changelog
 
+### 3.4.7 — Compare Accordion Centring
+- Fix: balance icon + both text lines now centred horizontally as a group on desktop and mobile; chevron pinned absolutely to right edge so it doesn't affect the centring
+
+### 3.4.6
+- Fix: Compare accordion toggle-left `align-items:flex-start` so icon and text lines anchor at top edge on desktop
+
+### 3.4.5
+- Fix: Compare accordion text always stacks vertically on all themes — `display:block!important` on both lines prevents WordPress theme overrides from collapsing them into one row
+
+### 3.4.4 — WOTD Analysis Full Width & Compare Text Fix
+- Fix: "Why this wallet leads today" box moved outside the `1fr/auto` grid — now spans full width below the name/stats/buttons row on desktop
+- Fix: Compare accordion text replaced `<strong>` / `<span>` (subject to WP theme padding/indent) with plain `<div>` elements — zero theme interference
+
+### 3.4.3 — Table Row Colour Fix & Bigger Text
+- Fix: First-row background bleed eliminated — switched from `border-collapse:separate` + `border-spacing` to `border-collapse:collapse` with `border-bottom` dividers; no WP theme background can leak through row gaps
+- Improvement: Table text sizes increased — wallet name, PNL, volume 13px → 15px; address/headers 11px → 12px; row padding increased
+
+### 3.4.2 — Compare Accordion Alignment
+- Fix: "Side-by-side wallet comparison" and "Pick any two wallets" lines vertically aligned — explicit `margin`, `padding`, `text-indent` resets on text wrapper
+
+### 3.4.1 — Bug Fixes & Polish
+- Fix: Table header blue/white split on desktop — `background:transparent!important` on `thead tr`, `tbody`, `tfoot`
+- Fix: 7D volume always $0 — PHP `normalise()` now tries `vol → volume → tradedAmount → notional`; JS shows `—` when volume is absent
+- Fix: Share on X on Wallet of the Day — desktop copy sits under wallet address; mobile copy stays in header; both hrefs updated by JS
+- Fix: 30D/7D toggle + Refresh block centred on mobile
+- Fix: Navy Blue theme — `border-radius:20px`, 32px side padding, `box-shadow` so widget sits as a rounded card; mobile 14px radius / 16px padding
+
 ### 3.4.0 — Themes, 7D Toggle & Live API
 - **New: White / Navy Blue theme** selector in Settings → Polymarket LB; all CSS fully adapted for navy dark background — tables, cards, controls, filter pills, compare tool, loading states, WCAG AA on all text
 - **New: 30D / 7D period toggle** on the widget controls bar — switches between MONTH and WEEK timePeriod; affects leaderboard, WotD analysis text, compare labels, and all card stat labels
 - **No caching** — removed all transient caching; every API request is now live and fresh
-- Removed sessionStorage client-side cache; the server-side seed is still used for the zero-spinner first paint (always fresh data fetched at page load)
-- Admin page redesigned: live API status badge, theme picker card with visual swatches, removed stale cache status table
-- Period label in crawler note updates dynamically with toggle
-- Table PNL column header and WotD stat label update with selected period
+- Admin page redesigned: live API status badge, theme picker card with visual swatches
 
 ### 3.3.2 — Theme Isolation & UI Redesign
 - Complete CSS rewrite — all styles scoped under `#ttg-lb-root` with ID-level specificity
@@ -170,14 +194,10 @@ This plugin fetches **public** data from `https://data-api.polymarket.com` only.
 - Action buttons redesigned: View Profile (deep navy) and ⚡ CopyTrade (vivid indigo)
 - WCAG AA compliance on PNL positive colour
 
-### 3.3.0
+### 3.3.0 — 3.0.0
 - Renamed repository to `polymarket-leaderboard-wordpress`
 - Setup wizard covers Wallet of the Day and Compare Tool
-
-### 3.2.1 — 3.0.0
-- Slug renamed for WP.org guideline 17 compliance
-- First-run setup wizard, opt-in settings for all optional features
-- Full CSS bundle self-contained, Google Fonts via `wp_enqueue_style`
+- Slug renamed for WP.org guideline compliance
 - Initial release: proxy, cache, filters, WOTD, compare, mobile cards
 
 ---

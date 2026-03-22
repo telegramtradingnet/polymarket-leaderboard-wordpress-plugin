@@ -2,9 +2,9 @@
 Contributors: bounmee
 Tags: polymarket, leaderboard, crypto, prediction-markets, trading, defi, wallets
 Requires at least: 5.5
-Tested up to: 6.7
+Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 3.4.0
+Stable tag: 3.5.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,36 @@ Yes. On screens ≤ 768px the table switches to a card layout. Both White and Na
 
 == Changelog ==
 
+= 3.4.8 =
+* Fix: 30D/7D toggle + Refresh block centred on desktop (was already centred on mobile)
+
+= 3.4.7 =
+* Fix: Wallet Compare accordion — icon and both text lines now centre horizontally as a group on desktop and mobile; chevron pinned absolutely to the right edge so it does not affect centring
+
+= 3.4.6 =
+* Fix: Compare accordion toggle-left changed to align-items:flex-start so the balance icon and text lines anchor at the top edge on desktop
+
+= 3.4.5 =
+* Fix: Compare accordion text lines always stacked vertically on all themes — replaced flex column with display:block!important to prevent WordPress theme overrides collapsing the two lines into one row
+
+= 3.4.4 =
+* Fix: "Why this wallet leads today" analysis box moved outside the 1fr/auto grid — now spans full width below the name/stats/buttons row in the Wallet of the Day card on desktop
+* Fix: Compare accordion text — replaced <strong> and <span> (styled by WP themes) with plain <div> elements; zero theme interference possible
+
+= 3.4.3 =
+* Fix: Table first-row colour bleed — switched from border-collapse:separate + border-spacing to border-collapse:collapse with border-bottom dividers; eliminates any WP theme background leaking through row gaps
+* Improvement: Table text sizes increased — wallet name, PNL, volume 13px → 15px; address 11px → 12px; column headers 11px → 12px; row padding increased for better readability
+
+= 3.4.2 =
+* Fix: Compare accordion "Side-by-side wallet comparison" and "Pick any two wallets" lines now vertically aligned on desktop — added explicit margin/padding/text-indent resets on the text wrapper
+
+= 3.4.1 =
+* Fix: Table header row blue/white split on desktop — added background:transparent!important to thead tr, tbody, tfoot so WordPress theme styles cannot bleed into row spacing gaps
+* Fix: 7D volume always showing $0 — PHP normalise() now tries vol → volume → tradedAmount → notional fallback chain; JS shows — instead of $0 when volume is genuinely absent
+* Fix: Share on X button on Wallet of the Day — desktop version moved under the wallet address (hidden on mobile); mobile version stays in the header row; both hrefs updated by JS
+* Fix: 30D/7D toggle + Refresh block centred on mobile
+* Fix: Navy Blue theme — root element now has border-radius:20px, 32px side padding, and a subtle box-shadow so the widget sits as a rounded card rather than flush to the page edges; mobile uses border-radius:14px and 16px padding
+
 = 3.4.0 =
 * New: White / Navy Blue theme selector in Settings; full CSS adaptation for navy dark background (tables, cards, controls, filters, compare tool, all states)
 * New: 30D / 7D period toggle in the widget controls bar; switches API timePeriod between MONTH and WEEK
@@ -138,5 +168,8 @@ Yes. On screens ≤ 768px the table switches to a card layout. Both White and Na
 
 == Upgrade Notice ==
 
-= 3.4.0 =
-Adds White/Navy Blue theme selector, 30D/7D period toggle, and removes all caching for always-fresh data. No breaking changes — existing shortcodes continue to work unchanged.
+= 3.4.8 =
+* Fix: 30D/7D toggle + Refresh block centred on desktop (was already centred on mobile)
+
+= 3.4.7 =
+Pure CSS fixes for Compare accordion centring, table row colours, WOTD analysis full width, and 7D volume display. No breaking changes — existing shortcodes continue to work unchanged.

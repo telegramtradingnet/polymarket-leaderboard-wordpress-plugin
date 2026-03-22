@@ -3,7 +3,7 @@
  * Plugin Name:  Polymarket Leaderboard — Top Traders & Copy Trading
  * Plugin URI:   https://github.com/telegramtradingnet/polymarket-leaderboard-wordpress-plugin
  * Description:  Embed a live Polymarket top-wallets leaderboard on any page. Server-side API proxy, category filters, 30D/7D period toggle, Wallet of the Day, wallet compare tool, and CopyTrade buttons. One shortcode: [polymarket_leaderboard]
- * Version:      3.4.0
+ * Version:      3.5.1
  * Author:       bounmee
  * Author URI:   https://telegramtrading.net
  * License:      GPL-2.0+
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
    CONSTANTS
 ═══════════════════════════════════════════════════════════ */
 define( 'TTG_COPY_URL', 'https://telegramtrading.net/polygun' );
-define( 'TTG_VERSION',  '3.4.0' );
+define( 'TTG_VERSION',  '3.5.1' );
 
 /* ═══════════════════════════════════════════════════════════
    OPTIONS
@@ -180,7 +180,7 @@ function ttg_normalise( array $raw ): array {
             'proxyWallet'   => $addr,
             'userName'      => $name,
             'pnl'           => (float) ( $w['pnl']    ?? 0 ),
-            'vol'           => (float) ( $w['vol']    ?? 0 ),
+            'vol'           => (float) ( $w['vol'] ?? $w['volume'] ?? $w['tradedAmount'] ?? $w['notional'] ?? 0 ),
             'profileImage'  => esc_url_raw( (string) ( $w['profileImage'] ?? '' ) ),
             'xUsername'     => sanitize_text_field( (string) ( $w['xUsername']     ?? '' ) ),
             'verifiedBadge' => ! empty( $w['verifiedBadge'] ),
@@ -289,10 +289,14 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
 /* ─── 3. CONTROLS ROW ──────────────────────────────────── */
 #ttg-lb-root .ttg-controls {
-  display:flex; align-items:center; justify-content:space-between;
-  flex-wrap:wrap; gap:10px; margin-bottom:18px;
+  display:flex!important; align-items:center!important; justify-content:center!important;
+  margin-bottom:18px;
   padding:10px 16px; background:#f7faff!important; border:1.5px solid #dce8f8!important;
   border-radius:10px;
+}
+#ttg-lb-root .ttg-controls-inner {
+  display:inline-flex!important; align-items:center!important; gap:10px; flex-wrap:wrap;
+  justify-content:center!important;
 }
 #ttg-lb-root .ttg-last-updated { display:flex; align-items:center; gap:6px; font-size:12px; color:#7a93b4; font-family:'DM Mono',monospace; }
 #ttg-lb-root .ttg-dot-live { width:8px; height:8px; background:#00b87a; border-radius:50%; animation:ttg-pulse 2s ease-in-out infinite; box-shadow:0 0 6px rgba(0,184,122,.5); }
@@ -343,23 +347,27 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
 /* ─── 5. TABLE ─────────────────────────────────────────── */
 #ttg-lb-root .ttg-table-wrap { width:100%; overflow-x:auto; }
-#ttg-lb-root .ttg-table { width:100%; border-collapse:separate!important; border-spacing:0 6px!important; min-width:520px; }
+#ttg-lb-root .ttg-table { width:100%; border-collapse:collapse!important; border-spacing:0!important; min-width:520px; }
+#ttg-lb-root .ttg-table thead,
+#ttg-lb-root .ttg-table thead tr,
+#ttg-lb-root .ttg-table tbody,
+#ttg-lb-root .ttg-table tbody tr,
+#ttg-lb-root .ttg-table tfoot { background:none!important; background-color:transparent!important; box-shadow:none!important; }
 #ttg-lb-root .ttg-table thead th {
-  font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
-  color:#7a93b4!important; padding:0 14px 8px!important; text-align:left;
+  font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  color:#7a93b4!important; padding:0 16px 10px!important; text-align:left;
   border:none!important; border-bottom:2px solid #dce8f8!important;
   background:none!important; white-space:nowrap;
 }
 #ttg-lb-root .ttg-table thead th:last-child { text-align:center; }
-#ttg-lb-root .ttg-table tbody tr {
-  background:#ffffff!important;
-  box-shadow:0 1px 4px rgba(15,82,186,.07),0 0 0 1px rgba(220,232,248,.6)!important;
-  border-radius:10px; transition:box-shadow .2s,transform .15s;
+#ttg-lb-root .ttg-table tbody tr { transition:background .15s; }
+#ttg-lb-root .ttg-table tbody tr:hover td { background:rgba(15,82,186,.04)!important; }
+#ttg-lb-root .ttg-table tbody td {
+  padding:15px 16px!important; font-size:15px; vertical-align:middle!important;
+  border:none!important; border-bottom:1px solid #edf2fb!important;
+  background:none!important;
 }
-#ttg-lb-root .ttg-table tbody tr:hover { box-shadow:0 6px 24px rgba(15,82,186,.12),0 0 0 1.5px #dce8f8!important; transform:translateY(-1px); }
-#ttg-lb-root .ttg-table tbody td { padding:13px 14px!important; font-size:14px; vertical-align:middle!important; border:none!important; background:transparent!important; }
-#ttg-lb-root .ttg-table tbody td:first-child { border-radius:10px 0 0 10px; }
-#ttg-lb-root .ttg-table tbody td:last-child { border-radius:0 10px 10px 0; }
+#ttg-lb-root .ttg-table tbody tr:last-child td { border-bottom:none!important; }
 
 
 /* ─── 6. RANK BADGES ───────────────────────────────────── */
@@ -373,21 +381,21 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 /* ─── 7. WALLET CELL ───────────────────────────────────── */
 #ttg-lb-root .ttg-wallet-cell { display:flex; flex-direction:column; gap:2px; }
 #ttg-lb-root .ttg-wallet-top { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
-#ttg-lb-root .ttg-wallet-name { font-weight:600; font-size:13px; color:#0d1f3c!important; line-height:1.3; }
+#ttg-lb-root .ttg-wallet-name { font-weight:600; font-size:15px; color:#0d1f3c!important; line-height:1.3; }
 #ttg-lb-root .ttg-verified { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:#1a6fe0!important; color:#ffffff!important; font-size:9px; font-weight:800; flex-shrink:0; }
 #ttg-lb-root .ttg-x-link { color:#7a93b4!important; font-size:12px; transition:color .15s; text-decoration:none!important; }
 #ttg-lb-root .ttg-x-link:hover { color:#0d1f3c!important; }
-#ttg-lb-root .ttg-addr { display:flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:11px; color:#155bca!important; }
+#ttg-lb-root .ttg-addr { display:flex; align-items:center; gap:4px; font-family:'DM Mono',monospace; font-size:12px; color:#155bca!important; }
 #ttg-lb-root .ttg-copy-btn { background:none!important; border:none!important; cursor:pointer; color:#b0c4dc!important; padding:1px; transition:color .15s; flex-shrink:0; }
 #ttg-lb-root .ttg-copy-btn:hover { color:#155bca!important; }
 #ttg-lb-root .ttg-why-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:500; color:#3a5070!important; background:#f4f8ff!important; border:1px solid #dce8f8!important; border-radius:20px; padding:2px 9px; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px; }
-#ttg-lb-root .ttg-pnl { font-weight:700; font-family:'DM Mono',monospace; font-size:13px; }
+#ttg-lb-root .ttg-pnl { font-weight:700; font-family:'DM Mono',monospace; font-size:15px; }
 #ttg-lb-root .ttg-pnl.pos { color:#00784e!important; }
 #ttg-lb-root .ttg-pnl.neg { color:#e63946!important; }
 #ttg-lb-root .ttg-pnl.neu { color:#0d1f3c!important; }
-#ttg-lb-root .ttg-pnl-lg { font-size:15px; }
-#ttg-lb-root .ttg-vol { font-family:'DM Mono',monospace; font-size:13px; color:#3a5070!important; }
-#ttg-lb-root .ttg-tag { display:inline-flex; align-items:center; font-size:11px; font-weight:600; letter-spacing:.03em; padding:3px 10px; border-radius:12px; background:#e8f1fd!important; color:#0f52ba!important; }
+#ttg-lb-root .ttg-pnl-lg { font-size:16px; }
+#ttg-lb-root .ttg-vol { font-family:'DM Mono',monospace; font-size:15px; color:#3a5070!important; }
+#ttg-lb-root .ttg-tag { display:inline-flex; align-items:center; font-size:12px; font-weight:600; letter-spacing:.03em; padding:4px 12px; border-radius:12px; background:#e8f1fd!important; color:#0f52ba!important; }
 
 
 /* ─── 8. ACTION BUTTONS ────────────────────────────────── */
@@ -449,8 +457,16 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-title-full { display:inline; }
 #ttg-lb-root .ttg-title-mobile { display:none; }
 #ttg-lb-root .ttg-wotd-badge { display:inline-flex; align-items:center; gap:9px; background:linear-gradient(135deg,rgba(244,168,0,.18),rgba(244,168,0,.06))!important; border:1px solid rgba(244,168,0,.32)!important; color:#f4d76a!important; font-size:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:8px 20px!important; border-radius:24px; white-space:nowrap; }
-#ttg-lb-root .ttg-wotd-share-btn { margin-left:auto; display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.10)!important; border:1px solid rgba(255,255,255,.20)!important; color:#ffffff!important; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:7px 14px!important; border-radius:8px; transition:all .2s; }
+/* Share on X: base style shared by both desktop and mobile copies */
+#ttg-lb-root .ttg-wotd-share-btn { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.10)!important; border:1px solid rgba(255,255,255,.20)!important; color:#ffffff!important; font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; padding:7px 14px!important; border-radius:8px; transition:all .2s; text-decoration:none!important; }
 #ttg-lb-root .ttg-wotd-share-btn:hover { background:rgba(255,255,255,.18)!important; color:#ffffff!important; }
+/* Share on X positioning: desktop = under wallet address, mobile = in header */
+#ttg-lb-root .ttg-wotd-share-desktop { display:none; margin-top:3px; margin-bottom:22px; }
+#ttg-lb-root .ttg-wotd-share-mobile  { display:inline-flex; margin-left:auto; }
+@media(min-width:769px) {
+  #ttg-lb-root .ttg-wotd-share-desktop { display:inline-flex; }
+  #ttg-lb-root .ttg-wotd-share-mobile  { display:none!important; }
+}
 #ttg-lb-root .ttg-wotd-body { display:grid; grid-template-columns:1fr auto; gap:24px; align-items:start; }
 #ttg-lb-root .ttg-wotd-name { font-size:22px; font-weight:800; color:#ffffff!important; letter-spacing:-.02em; margin-bottom:5px; line-height:1.2; }
 #ttg-lb-root .ttg-wotd-addr-row { display:flex; align-items:center; gap:6px; margin-bottom:18px; }
@@ -464,7 +480,7 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root .ttg-wotd-stat-value.pos { color:#00e09a!important; }
 #ttg-lb-root .ttg-wotd-stat-value.neu { color:#ffffff!important; }
 #ttg-lb-root .ttg-wotd-stat-value.neg { color:#ff4d5a!important; }
-#ttg-lb-root .ttg-wotd-analysis { background:rgba(255,255,255,.06)!important; border:1px solid rgba(255,255,255,.08)!important; border-radius:10px; padding:14px 16px!important; }
+#ttg-lb-root .ttg-wotd-analysis { background:rgba(255,255,255,.06)!important; border:1px solid rgba(255,255,255,.08)!important; border-radius:10px; padding:14px 16px!important; margin-top:22px; width:100%; box-sizing:border-box; }
 #ttg-lb-root .ttg-wotd-analysis-label { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:rgba(255,255,255,.35)!important; margin-bottom:7px; }
 #ttg-lb-root .ttg-wotd-analysis-text { font-size:14px; color:rgba(255,255,255,.75)!important; line-height:1.78; }
 #ttg-lb-root .ttg-wotd-analysis-text strong { color:#7eb8f7!important; font-weight:600; }
@@ -476,14 +492,15 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
 /* ─── 11. COMPARE TOOL ─────────────────────────────────── */
 #ttg-lb-root .ttg-compare-wrap { border-radius:12px; overflow:hidden; border:1.5px solid #dce8f8!important; }
-#ttg-lb-root .ttg-compare-toggle { display:flex; align-items:center; justify-content:space-between; background:#ffffff!important; padding:14px 18px!important; cursor:pointer; font-family:'DM Sans',sans-serif; border:none!important; width:100%; gap:10px; transition:background .15s; }
+#ttg-lb-root .ttg-compare-toggle { display:flex; align-items:center; justify-content:center; background:#ffffff!important; padding:14px 18px!important; cursor:pointer; font-family:'DM Sans',sans-serif; border:none!important; width:100%; gap:10px; transition:background .15s; position:relative; }
 #ttg-lb-root .ttg-compare-toggle:hover,#ttg-lb-root .ttg-compare-toggle.open { background:#f4f8ff!important; }
-#ttg-lb-root .ttg-compare-toggle-left { display:flex; align-items:center; gap:12px; min-width:0; }
+#ttg-lb-root .ttg-compare-toggle-left { display:flex; align-items:center; gap:12px; }
 #ttg-lb-root .ttg-compare-toggle-icon { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#e8f1fd,#d0e4f8)!important; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
-#ttg-lb-root .ttg-compare-toggle-text strong { display:block; font-size:14px; font-weight:700; color:#0d1f3c!important; }
-#ttg-lb-root .ttg-compare-toggle-text span { display:block; font-size:12px; color:#7a93b4!important; }
-#ttg-lb-root .ttg-compare-chevron { font-size:12px; color:#7a93b4; transition:transform .25s; flex-shrink:0; }
-#ttg-lb-root .ttg-compare-toggle.open .ttg-compare-chevron { transform:rotate(180deg); }
+#ttg-lb-root .ttg-compare-toggle-text { display:block!important; text-indent:0!important; padding:0!important; margin:0!important; text-align:left; }
+#ttg-lb-root .ttg-cmp-title { display:block!important; font-size:14px; font-weight:700; color:#0d1f3c!important; margin:0!important; padding:0!important; line-height:1.4; }
+#ttg-lb-root .ttg-cmp-sub   { display:block!important; font-size:12px; color:#7a93b4!important; margin:0!important; padding:0!important; line-height:1.4; margin-top:1px!important; }
+#ttg-lb-root .ttg-compare-chevron { font-size:12px; color:#7a93b4; transition:transform .25s; position:absolute; right:18px; top:50%; transform:translateY(-50%); }
+#ttg-lb-root .ttg-compare-toggle.open .ttg-compare-chevron { transform:translateY(-50%) rotate(180deg); }
 #ttg-lb-root .ttg-compare-panel { background:#ffffff!important; border-top:1.5px solid #dce8f8!important; padding:22px 18px!important; animation:ttg-fadeIn .2s ease; }
 #ttg-lb-root .ttg-compare-selectors { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center; margin-bottom:16px; }
 #ttg-lb-root .ttg-compare-vs { font-size:12px; font-weight:700; color:#7a93b4; width:34px; height:34px; border-radius:50%; background:#f4f8ff!important; border:1.5px solid #dce8f8!important; display:flex; align-items:center; justify-content:center; flex-shrink:0; justify-self:center; }
@@ -533,9 +550,31 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
 /* ─── 14. RESPONSIVE ───────────────────────────────────── */
 @media(max-width:768px){
+  /* More breathing room at top before h2, less tight bottom */
+  #ttg-lb-root { padding-top:36px; padding-bottom:28px; }
+  #ttg-lb-root.ttg-theme-navy { border-radius:14px; padding-left:14px!important; padding-right:14px!important; }
+  /* Give h2 a little extra space above it */
+  #ttg-lb-root .ttg-h2-lb { margin-top:6px!important; margin-bottom:14px!important; }
+  /* Sections less gappy */
+  #ttg-lb-root .ttg-section { margin-bottom:32px; }
+  /* Controls row: less internal padding, gap stays comfortable */
+  #ttg-lb-root .ttg-controls { padding:8px 12px; margin-bottom:14px; }
+  #ttg-lb-root .ttg-controls-inner{flex-direction:column;align-items:center;}
+  #ttg-lb-root .ttg-controls-right{width:100%;justify-content:center;}
+  /* Filter pills: smaller padding so they don't crowd */
+  #ttg-lb-root .ttg-filter-btn { padding:6px 11px; font-size:12px; }
+  #ttg-lb-root .ttg-filters { gap:6px; margin-bottom:16px; }
+  /* Cards: less internal padding */
+  #ttg-lb-root .ttg-card { padding:12px!important; }
+  #ttg-lb-root .ttg-card-stats { gap:6px; margin:8px 0; }
+  /* Compare: less padding */
+  #ttg-lb-root .ttg-compare-toggle { padding:11px 14px!important; }
+  #ttg-lb-root .ttg-compare-panel { padding:16px 12px!important; }
+  /* Table hidden, cards shown */
   #ttg-lb-root .ttg-table-wrap{display:none;}
   #ttg-lb-root .ttg-cards{display:flex;}
-  #ttg-lb-root .ttg-wotd-inner{padding:20px 16px!important;}
+  /* WOTD */
+  #ttg-lb-root .ttg-wotd-inner{padding:18px 14px!important;}
   #ttg-lb-root .ttg-wotd-body{grid-template-columns:1fr;}
   #ttg-lb-root .ttg-wotd-name{font-size:18px!important;}
   #ttg-lb-root .ttg-wotd-stat-value{font-size:17px!important;}
@@ -545,15 +584,18 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
   #ttg-lb-root .ttg-compare-vs{display:none;}
   #ttg-lb-root .ttg-cmp-grid{grid-template-columns:1fr;}
   #ttg-lb-root .ttg-h2{font-size:18px!important;}
+  #ttg-lb-root #ttg-compare-section .ttg-h2{justify-content:center!important;}
   #ttg-lb-root .ttg-title-full{display:none;}
   #ttg-lb-root .ttg-title-mobile{display:inline;}
-  #ttg-lb-root .ttg-wotd-share-btn{margin-left:0;width:100%;justify-content:center;}
-  #ttg-lb-root .ttg-controls{flex-direction:column;align-items:flex-start;}
-  #ttg-lb-root .ttg-controls-right{width:100%;justify-content:space-between;}
+  #ttg-lb-root .ttg-wotd-share-mobile{margin-left:0;width:auto;justify-content:center;}
 }
 @media(max-width:480px){
   #ttg-lb-root .ttg-card-stats{grid-template-columns:1fr 1fr;}
   #ttg-lb-root .ttg-period-opt{padding:5px 9px;}
+  /* Even less side padding on very small screens */
+  #ttg-lb-root.ttg-theme-navy { padding-left:10px!important; padding-right:10px!important; }
+  #ttg-lb-root .ttg-card { padding:10px!important; }
+  #ttg-lb-root .ttg-crawler-note { font-size:12px; margin-bottom:16px; }
 }
 
 
@@ -564,6 +606,10 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root.ttg-theme-navy {
   background:linear-gradient(160deg,#06122a 0%,#091c3d 100%);
   color:#dce8ff;
+  border-radius:20px;
+  padding-left:32px;
+  padding-right:32px;
+  box-shadow:0 8px 48px rgba(4,10,28,.55);
 }
 
 /* Headings */
@@ -592,9 +638,9 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root.ttg-theme-navy .ttg-filter-btn.active { background:linear-gradient(135deg,#0f52ba,#1a6fe0)!important; border-color:transparent!important; color:#ffffff!important; }
 
 /* Table */
-#ttg-lb-root.ttg-theme-navy .ttg-table thead th { color:#3e5e82!important; border-bottom-color:rgba(255,255,255,.08)!important; }
-#ttg-lb-root.ttg-theme-navy .ttg-table tbody tr { background:rgba(255,255,255,.04)!important; box-shadow:0 1px 4px rgba(0,0,0,.35),0 0 0 1px rgba(255,255,255,.06)!important; }
-#ttg-lb-root.ttg-theme-navy .ttg-table tbody tr:hover { background:rgba(255,255,255,.07)!important; box-shadow:0 6px 24px rgba(0,0,0,.45),0 0 0 1.5px rgba(59,143,245,.25)!important; transform:translateY(-1px); }
+#ttg-lb-root.ttg-theme-navy .ttg-table thead th { color:#3e5e82!important; border-bottom-color:rgba(255,255,255,.10)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-table tbody td { border-bottom-color:rgba(255,255,255,.07)!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-table tbody tr:hover td { background:rgba(255,255,255,.05)!important; }
 
 /* Wallet cells */
 #ttg-lb-root.ttg-theme-navy .ttg-wallet-name { color:#c8deff!important; }
@@ -627,8 +673,8 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 #ttg-lb-root.ttg-theme-navy .ttg-compare-toggle { background:rgba(255,255,255,.04)!important; }
 #ttg-lb-root.ttg-theme-navy .ttg-compare-toggle:hover,
 #ttg-lb-root.ttg-theme-navy .ttg-compare-toggle.open { background:rgba(255,255,255,.07)!important; }
-#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-text strong { color:#c8deff!important; }
-#ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-text span { color:#4e6e96!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-title { color:#c8deff!important; }
+#ttg-lb-root.ttg-theme-navy .ttg-cmp-sub   { color:#4e6e96!important; }
 #ttg-lb-root.ttg-theme-navy .ttg-compare-toggle-icon { background:rgba(59,143,245,.15)!important; }
 #ttg-lb-root.ttg-theme-navy .ttg-compare-chevron { color:#4e6e96; }
 #ttg-lb-root.ttg-theme-navy .ttg-compare-panel { background:rgba(255,255,255,.03)!important; border-top-color:rgba(255,255,255,.08)!important; }
@@ -677,22 +723,24 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 
   <!-- Controls row -->
   <div class="ttg-controls">
-    <div class="ttg-last-updated" aria-live="polite">
-      <span class="ttg-dot-live" aria-hidden="true"></span>
-      <span id="ttg-ts">Loading&hellip;</span>
-    </div>
+    <div class="ttg-controls-inner">
+      <div class="ttg-last-updated" aria-live="polite">
+        <span class="ttg-dot-live" aria-hidden="true"></span>
+        <span id="ttg-ts">Loading&hellip;</span>
+      </div>
 
-    <!-- 30D / 7D period toggle -->
-    <div class="ttg-period-toggle" id="ttg-period-toggle" role="group" aria-label="Time period">
-      <button class="ttg-period-opt active" data-period="MONTH" aria-pressed="true">30D</button>
-      <button class="ttg-period-opt" data-period="WEEK" aria-pressed="false">7D</button>
-    </div>
+      <!-- 30D / 7D period toggle -->
+      <div class="ttg-period-toggle" id="ttg-period-toggle" role="group" aria-label="Time period">
+        <button class="ttg-period-opt active" data-period="MONTH" aria-pressed="true">30D</button>
+        <button class="ttg-period-opt" data-period="WEEK" aria-pressed="false">7D</button>
+      </div>
 
-    <div class="ttg-controls-right">
-      <button class="ttg-refresh-btn" id="ttg-rbtn" aria-label="Refresh leaderboard">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Refresh
-      </button>
+      <div class="ttg-controls-right">
+        <button class="ttg-refresh-btn" id="ttg-rbtn" aria-label="Refresh leaderboard">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Refresh
+        </button>
+      </div>
     </div>
   </div>
 
@@ -748,7 +796,7 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
           <span aria-hidden="true">&#11088;</span>
           Wallet of the Day
         </div>
-        <a href="#" id="ttg-wotd-share" class="ttg-wotd-share-btn" target="_blank" rel="noopener noreferrer" aria-label="Share on X (Twitter)">
+        <a href="#" id="ttg-wotd-share-mobile" class="ttg-wotd-share-btn ttg-wotd-share-mobile" target="_blank" rel="noopener noreferrer" aria-label="Share on X (Twitter)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
           Share on X
         </a>
@@ -763,6 +811,11 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
           </div>
+          <!-- Desktop: share on X below address (hidden on mobile) -->
+          <a href="#" id="ttg-wotd-share" class="ttg-wotd-share-btn ttg-wotd-share-desktop" target="_blank" rel="noopener noreferrer" aria-label="Share on X (Twitter)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            Share on X
+          </a>
           <div class="ttg-wotd-stats">
             <div class="ttg-wotd-stat">
               <span class="ttg-wotd-stat-label" id="ttg-wotd-pnl-label">30d PNL</span>
@@ -772,10 +825,6 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
               <span class="ttg-wotd-stat-label">Volume</span>
               <span class="ttg-wotd-stat-value neu" id="ttg-wotd-vol">-</span>
             </div>
-          </div>
-          <div class="ttg-wotd-analysis">
-            <div class="ttg-wotd-analysis-label">&#128202; Why this wallet leads today</div>
-            <div class="ttg-wotd-analysis-text" id="ttg-wotd-analysis">Loading analysis&hellip;</div>
           </div>
         </div>
         <div class="ttg-wotd-right">
@@ -787,6 +836,11 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
           <a href="https://polymarket.com/profile/" class="ttg-btn-sm ttg-btn-poly ttg-btn-poly-wotd" id="ttg-wotd-poly-link" target="_blank" rel="noopener noreferrer">View on Polymarket</a>
         </div>
       </div>
+      <!-- Analysis: full width below the grid -->
+      <div class="ttg-wotd-analysis">
+        <div class="ttg-wotd-analysis-label">&#128202; Why this wallet leads today</div>
+        <div class="ttg-wotd-analysis-text" id="ttg-wotd-analysis">Loading analysis&hellip;</div>
+      </div>
 
     </div>
   </div>
@@ -797,15 +851,15 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
 <!-- ═══════════ COMPARE TOOL ═══════════ -->
 <section class="ttg-section" id="ttg-compare-section" aria-label="Compare wallets">
 
-  <h2 class="ttg-h2">Compare Any Two Wallets</h2>
+  <h2 class="ttg-h2" style="justify-content:center!important;text-align:center!important;">Compare Any Two Wallets</h2>
 
   <div class="ttg-compare-wrap">
     <button class="ttg-compare-toggle" id="ttg-cmp-toggle" aria-expanded="false" aria-controls="ttg-cmp-panel">
       <div class="ttg-compare-toggle-left">
         <div class="ttg-compare-toggle-icon" aria-hidden="true">&#9878;</div>
         <div class="ttg-compare-toggle-text">
-          <strong>Side-by-side wallet comparison</strong>
-          <span>Pick any two wallets from the current leaderboard</span>
+          <div class="ttg-cmp-title">Side-by-side wallet comparison</div>
+          <div class="ttg-cmp-sub">Pick any two wallets from the current leaderboard</div>
         </div>
       </div>
       <span class="ttg-compare-chevron" aria-hidden="true">&#9660;</span>
@@ -962,7 +1016,7 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
           + '</div>'
         + '</td>'
         + '<td><span class="ttg-pnl ' + p.cls + '">' + p.str + '</span></td>'
-        + '<td><span class="ttg-vol">' + fmt(v) + '</span></td>'
+        + '<td><span class="ttg-vol">' + (v > 0 ? fmt(v) : '&mdash;') + '</span></td>'
         + '<td><span class="ttg-tag">' + escH(label) + '</span></td>'
         + '<td>'
           + '<div class="ttg-row-actions">'
@@ -999,7 +1053,7 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
         + '<span class="ttg-why-badge ttg-why-badge-card">' + why + '</span>'
         + '<div class="ttg-card-stats">'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">' + ps + ' PNL</span><span class="ttg-pnl ' + p.cls + '">' + p.str + '</span></div>'
-          + '<div class="ttg-card-stat"><span class="ttg-stat-label">Volume</span><span class="ttg-vol">' + fmt(v) + '</span></div>'
+          + '<div class="ttg-card-stat"><span class="ttg-stat-label">Volume</span><span class="ttg-vol">' + (v > 0 ? fmt(v) : '&mdash;') + '</span></div>'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">Rank</span><span class="ttg-stat-val">' + (w.rank || i+1) + '</span></div>'
           + '<div class="ttg-card-stat"><span class="ttg-stat-label">Focus</span><span class="ttg-tag">' + escH(label) + '</span></div>'
         + '</div>'
@@ -1069,9 +1123,12 @@ window.TTG_COPY = <?php echo $show_copy_links ? 'true' : 'false'; ?>;
     }
 
     var shareEl = $id('ttg-wotd-share');
-    if (shareEl) {
+    var shareMobile = document.getElementById('ttg-wotd-share-mobile');
+    if (shareEl || shareMobile) {
       var tweet = '🏆 Polymarket Wallet of the Day: ' + name + ': ' + p.str + ' this ' + periodWord() + '.';
-      shareEl.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(tweet);
+      var tweetUrl = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(tweet);
+      if (shareEl)     shareEl.href     = tweetUrl;
+      if (shareMobile) shareMobile.href = tweetUrl;
     }
 
     var polyLink = $id('ttg-wotd-poly-link');
