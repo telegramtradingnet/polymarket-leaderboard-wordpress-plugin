@@ -3,7 +3,7 @@
 Embed a **live Polymarket top-wallet leaderboard** on any WordPress page with a single shortcode. Pulls the top 10 traders ranked by 30-day or 7-day PNL from the official Polymarket API — server-side, always fresh (no caching), and fully theme-isolated.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPLv2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
-![Version](https://img.shields.io/badge/version-3.5.1-green)
+![Version](https://img.shields.io/badge/version-3.6.1-green)
 ![WordPress](https://img.shields.io/badge/WordPress-5.5%2B-blue)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple)
 
